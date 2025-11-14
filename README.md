@@ -23,78 +23,29 @@
 
 系统采用12个微服务构成：
 
-| 服务名称 | 端口 | 职责 |
+| 服务名称 | 端口   | 职责 |
 |---------|------|------|
-| risk-warning-gateway | 8080 | API网关，统一入口 |
-| risk-warning-user | 8081 | 用户认证和权限管理 |
-| risk-warning-enterprise | 8082 | 企业信息管理 |
-| risk-warning-project | 8083 | 项目生命周期管理 |
-| risk-warning-data-collection | 8084 | 数据收集和文档解析 |
-| risk-warning-behavior-processing | 8085 | 行为信息标准化处理 |
-| risk-warning-knowledge | 8086 | 知识库管理(指标/法规) |
-| risk-warning-matching-calculation | 8087 | AI匹配和指标计算 |
-| risk-warning-risk-assessment | 8088 | 风险评估和预警 |
-| risk-warning-report | 8089 | 评估报告生成 |
-| risk-warning-event | 8090 | 事件管理和审计 |
-| risk-warning-visualization | 8091 | 数据可视化 |
-| risk-warning-notification | 8092 | 通知和消息推送 |
+| risk-warning-gateway | 8088 | API网关，统一入口 |
+| risk-warning-user | 8095 | 用户认证和权限管理 |
+| risk-warning-enterprise | 8086 | 企业信息管理 |
+| risk-warning-project | 8092 | 项目生命周期管理 |
+| risk-warning-data-collection | 8085 | 数据收集和文档解析 |
+| risk-warning-behavior-processing | 8084 | 行为信息标准化处理 |
+| risk-warning-knowledge | 8089 | 知识库管理(指标/法规) |
+| risk-warning-matching-calculation | 8090 | AI匹配和指标计算 |
+| risk-warning-risk-assessment | 8094 | 风险评估和预警 |
+| risk-warning-report | 8093 | 评估报告生成 |
+| risk-warning-event | 8087 | 事件管理和审计 |
+| risk-warning-notification | 8091 | 通知和消息推送 |
 
 ## 快速启动
 
 ### 环境要求
 
-- Java 8+
+- Java 8
 - Maven 3.8+
 - Docker 20.10+
 - Docker Compose 2.0+
-
-### 启动步骤
-
-1. **克隆项目**
-```bash
-git clone <repository-url>
-cd Risk_Warning_Platform
-```
-
-2. **启动基础设施和所有服务**
-```bash
-chmod +x start.sh
-./start.sh
-```
-
-3. **访问系统**
-- 系统网关: http://localhost:8080
-- Nacos控制台: http://localhost:8848/nacos (nacos/nacos)
-- Elasticsearch: http://localhost:9200
-
-### 手动启动
-
-如果需要手动启动：
-
-1. **启动基础设施**
-```bash
-docker-compose up -d
-```
-
-2. **编译项目**
-```bash
-mvn clean package -DskipTests
-```
-
-3. **启动微服务**
-```bash
-# 按顺序启动各服务
-java -jar risk-warning-gateway/target/risk-warning-gateway-1.0.0.jar &
-java -jar risk-warning-user/target/risk-warning-user-1.0.0.jar &
-# ... 其他服务
-```
-
-### 停止系统
-
-```bash
-chmod +x stop.sh
-./stop.sh
-```
 
 ## 项目结构
 

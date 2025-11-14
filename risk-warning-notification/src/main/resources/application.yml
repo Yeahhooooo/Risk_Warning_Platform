@@ -11,3 +11,7 @@ management:
   endpoint:
     health:
       show-details: always
+
+netty:
+  websocket:
+    port: 9090

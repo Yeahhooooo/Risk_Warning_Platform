@@ -52,7 +52,6 @@
         <module>risk-warning-risk-assessment</module>
         <module>risk-warning-report</module>
         <module>risk-warning-event</module>
-        <module>risk-warning-visualization</module>
         <module>risk-warning-notification</module>
     </modules>
 

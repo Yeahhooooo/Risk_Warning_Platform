@@ -75,7 +75,6 @@ spring:
             - Path=/api/report/**
           filters:
             - StripPrefix=2
-
         # 事件服务
         - id: event-service
           uri: lb://risk-warning-event
@@ -83,15 +82,6 @@ spring:
             - Path=/api/event/**
           filters:
             - StripPrefix=2
-
-        # 可视化服务
-        - id: visualization-service
-          uri: lb://risk-warning-visualization
-          predicates:
-            - Path=/api/visualization/**
-          filters:
-            - StripPrefix=2
-
         # 通知服务
         - id: notification-service
           uri: lb://risk-warning-notification
@@ -99,6 +89,13 @@ spring:
             - Path=/api/notification/**
           filters:
             - StripPrefix=2
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOriginPatterns: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+            allowCredentials: true
 
 server:
   port: 8088

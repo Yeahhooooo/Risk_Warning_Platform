@@ -47,11 +47,6 @@
             <artifactId>spring-cloud-starter-loadbalancer</artifactId>
         </dependency>
 
-        <!-- Reactor Netty -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux</artifactId>
-        </dependency>
 
         <!-- Redis for rate limiting -->
         <dependency>
@@ -59,11 +54,11 @@
             <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
         </dependency>
 
-        <!-- Common Module -->
+        <!-- Lombok -->
         <dependency>
-            <groupId>com.riskwarning</groupId>
-            <artifactId>risk-warning-common</artifactId>
-            <version>1.0.0</version>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
         </dependency>
     </dependencies>
 

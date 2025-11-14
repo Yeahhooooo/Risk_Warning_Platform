@@ -38,6 +38,7 @@ buildNumber.properties
 out/
 !**/src/main/**/out/
 !**/src/test/**/out/
+**/out/
 
 # IDE - Eclipse
 .apt_generated

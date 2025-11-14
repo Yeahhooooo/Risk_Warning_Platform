@@ -71,6 +71,13 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- Common Module -->
         <dependency>
             <groupId>com.riskwarning</groupId>
