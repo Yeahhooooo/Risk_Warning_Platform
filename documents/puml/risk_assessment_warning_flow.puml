@@ -1,0 +1,207 @@
+@startuml 风险评估与预警流程图
+
+!define RECTANGLE class
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 10
+
+title 风险评估与预警流程图
+
+participant "Risk Assessment Service" as RiskService
+queue "Kafka" as Kafka
+database "PostgreSQL" as PG
+database "Elasticsearch" as ES
+database "Redis" as Redis
+participant "Notification Service" as NotificationService
+
+== 消息消费与任务初始化 ==
+
+Kafka -> RiskService : 1. 消费风险评估任务消息\n(topic: risk-assessment-tasks)
+note right of Kafka
+  消息内容：
+{
+  "messageId": "uuid-v4",
+  "taskType": "BEHAVIOR_PROCESSING",
+  "timestamp": "2025-11-07T14:30:00.123Z",
+  "source": "service-name",
+  "traceId": "distributed-trace-id",
+  "projectId": "101",
+  "assessmentId": "201",
+  "userId": "12345",
+  "enterpriseId": "1",
+  "indicatorResult": {}
+}
+end note
+
+RiskService -> Redis : 2. 检查任务幂等性\n(risk_task:{messageId})
+Redis -> RiskService : 3. 返回检查结果
+
+alt 任务未处理
+    RiskService -> Redis : 4. 标记任务开始处理
+    Redis -> RiskService : 5. 确认标记成功
+else 任务已处理
+    RiskService -> RiskService : 6. 跳过重复任务，结束流程
+end
+
+== 指标信息获取与风险规则解析 ==
+
+RiskService -> ES : 7. 查询指标详细配置\n(t_indicator: {indicatorId})
+ES -> RiskService : 8. 返回指标配置和风险规则
+
+RiskService -> RiskService : 9. 解析风险规则配置\n(risk_rule.static_threshold)
+note right of RiskService
+  风险规则解析：
+  - 静态阈值配置
+  - 比较操作符(>, <, >=, <=, ==)
+  - 阈值数值
+  - 触发风险等级
+  - 调节因子配置
+end note
+
+== 阈值检查与风险判定 ==
+
+RiskService -> RiskService : 10. 执行静态阈值检查
+note right of RiskService
+  阈值检查逻辑：
+  if (指标得分 操作符 阈值) {
+    触发基础风险等级
+  }
+  
+  例如：score < 80 触发"高"风险
+end note
+
+alt 触发静态阈值风险
+    RiskService -> RiskService : 11. 记录基础风险等级
+    
+    === 风险实例生成 ===
+    
+    RiskService -> RiskService : 19. 构建风险实例数据
+    note right of RiskService
+      风险实例包含：
+      - 风险名称和描述
+      - 风险等级(调节后)
+      - 触发指标信息
+      - 相关法规信息
+      - 影响范围评估
+      - 应对措施建议
+    end note
+    
+    RiskService -> ES : 20. 创建风险实例\n(t_risk)
+    ES -> RiskService : 21. 确认风险实例创建
+    
+    RiskService -> PG : 22. 更新指标结果状态\n(risk_triggered=true, risk_status='已评估')
+    PG -> RiskService : 23. 确认状态更新
+    
+    === 风险预警通知 ===
+    
+    RiskService -> NotificationService : 24. 发送风险预警通知
+    note right of NotificationService
+      通知内容：
+      - 风险等级和描述
+      - 触发指标信息
+      - 影响评估
+      - 建议措施
+      - 紧急程度标识
+    end note
+    NotificationService -> RiskService : 25. 确认通知发送
+    
+    RiskService -> PG : 26. 记录风险触发事件\n(t_event: RISK_TRIGGERED)
+    PG -> RiskService : 27. 确认事件记录
+    
+else 未触发风险
+    RiskService -> PG : 28. 更新指标结果状态\n(risk_triggered=false, risk_status='已评估')
+    PG -> RiskService : 29. 确认状态更新
+    
+    RiskService -> PG : 30. 记录风险评估事件\n(t_event: RISK_ASSESSED_NO_TRIGGER)
+    PG -> RiskService : 31. 确认事件记录
+end
+
+== 项目完成度检查 ==
+
+RiskService -> Redis : 32. 添加指标到完成集合\n(project:{projectId}:completed)
+Redis -> RiskService : 33. 确认指标添加
+
+RiskService -> Redis : 34. 获取已完成指标数量\n(SCARD project:{projectId}:completed)
+Redis -> RiskService : 35. 返回已完成指标数量
+
+RiskService -> Redis : 36. 获取项目总指标数量
+Redis -> RiskService : 37. 返回项目总指标数量
+
+alt 所有指标已完成评估(completedCount == totalCount)
+    RiskService -> RiskService : 38. 构建评估完成消息
+    note right of RiskService
+      完成消息：
+        {
+        "messageId": "uuid-v4",
+        "taskType": "ASSESSMENT_COMPLETED",
+        "timestamp": "2025-11-07T14:30:00.123Z",
+        "source": "service-name",
+        "traceId": "distributed-trace-id",
+        "projectId": "101",
+        "assessmentId": "201",
+        "userId": "12345",
+        "enterpriseId": "1"
+        }
+    end note
+    
+    RiskService -> Kafka : 39. 发送评估完成事件\n(topic: assessment-completed-events)
+    Kafka -> RiskService : 40. 确认消息发送
+    
+    RiskService -> PG : 41. 更新评估状态为"已完成"\n(t_assessment_result)
+    PG -> RiskService : 42. 确认状态更新
+    
+else 仍有指标未完成(completedCount < totalCount)
+    RiskService -> RiskService : 43. 构建问卷任务消息
+    note right of RiskService
+      问卷消息：
+      {
+        "messageId": "uuid-v4",
+        "taskType": "QUESTIONNAIRE_REQUIRED",
+        "timestamp": "2025-11-07T14:30:00.123Z",
+        "source": "service-name",
+        "traceId": "distributed-trace-id",
+        "projectId": "101",
+        "assessmentId": "201",
+        "userId": "12345",
+        "enterpriseId": "1"
+      }
+    end note
+    
+    RiskService -> Kafka : 44. 发送问卷生成任务\n(topic: questionnaire-generation-tasks)
+    Kafka -> RiskService : 45. 确认消息发送
+end
+
+note right of Redis
+  Redis数据结构：
+  - project:{id}:completed: SET类型，存储已完成指标ID
+  - project:{id}:total: 项目总指标数量
+  - risk_task:{messageId}: 幂等标记
+  - 过期时间设置防止内存泄漏
+end note
+
+note right of ES
+  风险实例索引：
+  - t_risk: 风险记录主索引
+  - 支持风险等级聚合查询
+  - 按项目和维度分类存储
+  - 关联指标和法规信息
+end note
+
+note right of PG
+  事务处理：
+  - 指标状态更新事务
+  - 风险触发事件记录
+  - 评估完成状态更新
+  - 并发安全保证
+end note
+
+note right of RiskService
+  处理特点：
+  - 单个指标独立风险评估
+  - 支持调节因子复杂逻辑
+  - Redis原子计数保证至少发出一次完成事件
+  - 完整的事件追踪
+  - 实时风险预警通知
+end note
+
+@enduml

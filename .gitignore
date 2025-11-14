@@ -1,0 +1,145 @@
+# Java
+*.class
+*.log
+*.ctxt
+.mtj.tmp/
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+hs_err_pid*
+replay_pid*
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Spring Boot
+.springBeans
+.sts4-cache
+*.orig
+
+# IDE - IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+# IDE - Eclipse
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+# IDE - NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# IDE - VS Code
+.vscode/
+
+# OS Generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+logs/
+*.log
+spring.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Configuration files with sensitive data
+application-local.properties
+application-dev.properties
+application-prod.properties
+*.env
+.env
+
+# Test reports
+TEST-*.xml
+**/target/surefire-reports/
+**/target/failsafe-reports/
+
+# Coverage reports
+jacoco.exec
+*.exec
+
+# Generated documentation
+/docs/
+javadoc/
+
+# Backup files
+*.bak
+*.backup
+
+# Node modules (if any frontend components)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Package Files
+*.deb
+*.rpm
+
+# Local workspace files
+.metadata
+.recommenders
+
+# JMX files
+*.jmx
+
+# Other
+*.pid
+*.seed
+*.pid.lock
+*.tgz
+
+# Elasticsearch data (if running locally)
+elasticsearch-*/
+data/

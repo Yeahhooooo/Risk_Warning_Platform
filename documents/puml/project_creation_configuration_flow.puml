@@ -1,0 +1,164 @@
+@startuml 项目创建与配置功能流程图
+
+!define RECTANGLE class
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 10
+
+title 项目创建与配置功能流程图
+
+actor "企业管理员" as Admin
+actor "项目成员" as Member
+participant "User and Auth Service" as UserAuthService
+participant "Project Service" as ProjectService
+participant "Enterprise Service" as EnterpriseService
+database "PostgreSQL" as PG
+database "Redis" as Redis
+
+== 项目初始化流程 ==
+
+Admin -> UserAuthService : 1. 创建项目请求\n(项目名称, 评估类型)
+UserAuthService -> UserAuthService : 2. 验证用户企业权限
+
+UserAuthService -> ProjectService : 3. 项目创建请求
+ProjectService -> PG : 4. 创建项目记录\n(t_project)
+PG -> ProjectService : 5. 返回项目ID
+
+ProjectService -> PG : 6. 初始化项目成员\n(t_project_member, role='project_admin')
+PG -> ProjectService : 7. 确认成员初始化
+
+ProjectService -> PG : 8. 创建评估结果记录\n(t_assessment_result, status='未开始')
+PG -> ProjectService : 9. 返回评估结果ID
+
+ProjectService -> UserAuthService : 10. 项目创建成功
+UserAuthService -> Admin : 11. 返回项目信息
+
+== 维度配置流程 ==
+
+Admin -> UserAuthService : 12. 配置项目维度\n(行业, 地域, 适用对象)
+UserAuthService -> UserAuthService : 13. 验证项目管理权限
+
+UserAuthService -> ProjectService : 14. 维度配置请求
+ProjectService -> PG : 15. 更新项目配置\n(t_project.industry, region, oriented_user)
+PG -> ProjectService : 16. 确认配置更新
+
+ProjectService -> Redis : 17. 缓存项目配置\n(project:{id}:config)
+ProjectService -> UserAuthService : 18. 配置完成响应
+UserAuthService -> Admin : 19. 维度配置成功
+
+== 团队组建流程 ==
+
+Admin -> UserAuthService : 20. 添加项目成员\n(用户邮箱, 角色)
+UserAuthService -> UserAuthService : 21. 验证项目管理权限
+
+UserAuthService -> EnterpriseService : 22. 验证用户企业关系
+EnterpriseService -> PG : 23. 查询企业成员\n(t_enterprise_user)
+PG -> EnterpriseService : 24. 返回成员验证结果
+
+alt 用户是企业成员
+    EnterpriseService -> ProjectService : 25. 添加项目成员请求
+    ProjectService -> PG : 26. 创建项目成员关联\n(t_project_member)
+    PG -> ProjectService : 27. 确认成员添加
+    
+    ProjectService -> Redis : 28. 更新项目成员缓存\n(project:{id}:members)
+    ProjectService -> UserAuthService : 29. 成员添加成功
+    UserAuthService -> Admin : 30. 团队成员添加完成
+else 用户非企业成员
+    EnterpriseService -> UserAuthService : 31. 权限验证失败
+    UserAuthService -> Admin : 32. 用户无权限加入项目
+end
+
+== 项目状态管理流程 ==
+
+Admin -> UserAuthService : 33. 更新项目状态\n(新状态)
+UserAuthService -> UserAuthService : 34. 验证项目管理权限
+
+UserAuthService -> ProjectService : 35. 状态更新请求
+ProjectService -> PG : 36. 验证状态流转合法性
+PG -> ProjectService : 37. 返回当前状态
+
+alt 状态流转合法
+    ProjectService -> PG : 38. 更新项目状态\n(t_project.status)
+    PG -> ProjectService : 39. 确认状态更新
+    
+    ProjectService -> Redis : 40. 更新项目状态缓存\n(project:{id}:status)
+    
+    alt 状态变更为"进行中"
+        ProjectService -> PG : 41. 更新评估状态\n(t_assessment_result.status='进行中')
+        PG -> ProjectService : 42. 确认评估状态更新
+    end
+    
+    ProjectService -> UserAuthService : 43. 状态更新成功
+    UserAuthService -> Admin : 44. 项目状态更新完成
+else 状态流转非法
+    ProjectService -> UserAuthService : 45. 状态流转错误
+    UserAuthService -> Admin : 46. 状态更新失败提示
+end
+
+== 权限查看流程 ==
+
+Member -> UserAuthService : 47. 查看项目信息请求
+UserAuthService -> UserAuthService : 48. 验证用户身份
+
+UserAuthService -> ProjectService : 49. 项目信息查询
+ProjectService -> PG : 50. 查询用户项目权限\n(t_project_member)
+PG -> ProjectService : 51. 返回权限信息
+
+alt 有项目权限
+    ProjectService -> Redis : 52. 查询项目缓存\n(project:{id})
+    Redis -> ProjectService : 53. 返回项目信息
+    
+    ProjectService -> UserAuthService : 54. 返回项目详情
+    UserAuthService -> Member : 55. 显示项目信息
+else 无项目权限
+    ProjectService -> UserAuthService : 56. 权限不足响应
+    UserAuthService -> Member : 57. 访问权限不足提示
+end
+
+== 项目评估启动流程 ==
+
+Admin -> UserAuthService : 58. 启动评估请求
+UserAuthService -> UserAuthService : 59. 验证项目管理权限
+
+UserAuthService -> ProjectService : 60. 配置完整性检查
+ProjectService -> PG : 61. 查询项目完整配置\n(t_project)
+PG -> ProjectService : 62. 返回项目配置
+
+alt 配置完整
+    ProjectService -> PG : 63. 更新项目状态为"进行中"
+    PG -> ProjectService : 64. 确认状态更新
+    
+    ProjectService -> UserAuthService : 65. 项目启动成功
+    UserAuthService -> Admin : 66. 可以开始数据收集
+else 配置不完整
+    ProjectService -> UserAuthService : 67. 配置不完整响应
+    UserAuthService -> Admin : 68. 提示完善项目配置
+end
+
+note right of Redis
+  缓存内容包括：
+  - 项目基本信息
+  - 项目配置参数
+  - 项目成员列表
+  - 项目状态信息
+end note
+
+note right of PG
+  涉及的表：
+  - t_project (项目信息)
+  - t_project_member (项目成员)
+  - t_assessment_result (评估结果)
+  - t_enterprise_user (企业成员验证)
+end note
+
+note left of ProjectService
+  状态流转规则：
+  创建 → 进行中 → 已完成 → 已归档
+  
+  权限等级：
+  - project_admin: 全部权限
+  - editor: 编辑权限
+  - viewer: 查看权限
+end note
+
+@enduml

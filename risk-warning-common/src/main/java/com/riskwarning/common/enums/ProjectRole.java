@@ -1,0 +1,26 @@
+package com.riskwarning.common.enums;
+
+/**
+ * 项目角色枚举
+ */
+public enum ProjectRole {
+    PROJECT_ADMIN("project_admin", "项目管理员"),
+    EDITOR("editor", "编辑者"),
+    VIEWER("viewer", "查看者");
+
+    private final String code;
+    private final String description;
+
+    ProjectRole(String code, String description) {
+        this.code = code;
+        this.description = description;
+    }
+
+    public String getCode() {
+        return code;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+}

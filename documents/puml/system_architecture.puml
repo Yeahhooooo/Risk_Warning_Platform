@@ -1,0 +1,155 @@
+@startuml 风险合规预警系统总体架构图
+
+!define RECTANGLE class
+
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 10
+
+title 风险合规预警系统总体架构图
+
+' 用户层
+rectangle "用户层" as UserLayer #lightblue {
+  rectangle "Web浏览器" as WebBrowser
+  rectangle "移动端" as MobileApp
+}
+
+' 接入层
+rectangle "接入层" as AccessLayer #lightgreen {
+  rectangle "负载均衡器" as LoadBalancer
+  rectangle "API网关" as APIGateway
+  rectangle "静态资源服务" as StaticServer
+}
+
+' 前端层
+rectangle "前端层" as FrontendLayer #lightyellow {
+  rectangle "Vue前端应用" as VueApp {
+    rectangle "用户管理界面" as UserUI
+    rectangle "项目管理界面" as ProjectUI
+    rectangle "评估报告界面" as ReportUI
+    rectangle "数据可视化界面" as VisualizationUI
+  }
+}
+
+' 后端服务层
+rectangle "后端服务层" as BackendLayer #lightcyan {
+  rectangle "Spring Boot应用" as SpringBootApp {
+    rectangle "用户与权限管理" as UserService
+    rectangle "企业信息管理" as CompanyService
+    rectangle "项目管理" as ProjectService
+    rectangle "行为信息处理" as BehaviorService
+    rectangle "知识库管理" as KnowledgeService
+    rectangle "智能匹配" as MatchingService
+    rectangle "指标计算" as CalculationService
+    rectangle "风险评估" as RiskService
+    rectangle "评估报告" as ReportService
+    rectangle "事件管理" as EventService
+    rectangle "数据可视化" as DataVisualizationService
+  }
+}
+
+' 消息中间件
+rectangle "消息中间件" as MessageLayer #lightpink {
+  rectangle "Kafka" as Kafka {
+    rectangle "行为处理队列" as BehaviorQueue
+    rectangle "计算任务队列" as CalculationQueue
+    rectangle "风险预警队列" as RiskQueue
+    rectangle "报告生成队列" as ReportQueue
+  }
+}
+
+' AI算法层
+rectangle "AI算法层" as AILayer #lavender {
+  rectangle "BERT模型服务" as BERTService {
+    rectangle "文本向量化" as TextVectorization
+    rectangle "语义相似度计算" as SemanticSimilarity
+    rectangle "智能匹配算法" as MatchingAlgorithm
+  }
+}
+
+' 数据层
+rectangle "数据层" as DataLayer #lightgray {
+  rectangle "PostgreSQL" as PostgreSQL {
+    rectangle "用户数据" as UserData
+    rectangle "企业数据" as CompanyData
+    rectangle "项目数据" as ProjectData
+    rectangle "指标数据" as IndicatorData
+    rectangle "风险数据" as RiskData
+  }
+  
+  rectangle "Elasticsearch" as Elasticsearch {
+    rectangle "行为信息索引" as BehaviorIndex
+    rectangle "法规标准索引" as RegulationIndex
+    rectangle "计算规则索引" as CalculationIndex
+    rectangle "风险规则索引" as RiskRuleIndex
+  }
+  
+  rectangle "Milvus" as Milvus {
+    rectangle "行为向量" as BehaviorVectors
+    rectangle "指标向量" as IndicatorVectors
+    rectangle "法规向量" as RegulationVectors
+  }
+  
+  rectangle "Redis" as Redis {
+    rectangle "用户会话" as UserSession
+    rectangle "计算缓存" as CalculationCache
+    rectangle "匹配结果缓存" as MatchingCache
+  }
+}
+
+' 外部接入层
+rectangle "外部接入层" as ExternalLayer #mistyrose {
+  rectangle "法规API接口" as RegulationAPI
+  rectangle "企业信用API" as CreditAPI
+  rectangle "第三方认证" as ThirdPartyAuth
+}
+
+' 连接关系
+UserLayer --> AccessLayer : "HTTPS请求"
+AccessLayer --> FrontendLayer : "静态资源/API代理"
+FrontendLayer --> BackendLayer : "REST API"
+
+BackendLayer --> MessageLayer : "异步任务"
+BackendLayer --> AILayer : "AI服务调用"
+BackendLayer --> DataLayer : "数据读写"
+BackendLayer --> ExternalLayer : "外部API调用"
+
+MessageLayer --> BackendLayer : "事件驱动"
+AILayer --> DataLayer : "向量存储"
+
+' 内部连接
+WebBrowser --> LoadBalancer
+MobileApp --> LoadBalancer
+LoadBalancer --> APIGateway
+APIGateway --> VueApp
+APIGateway --> SpringBootApp
+
+' 详细连接
+UserService --> PostgreSQL
+UserService --> Redis
+CompanyService --> PostgreSQL
+CompanyService --> CreditAPI
+ProjectService --> PostgreSQL
+BehaviorService --> Elasticsearch
+BehaviorService --> BERTService
+BehaviorService --> BehaviorQueue
+KnowledgeService --> Elasticsearch
+KnowledgeService --> Milvus
+KnowledgeService --> RegulationAPI
+MatchingService --> Milvus
+MatchingService --> BERTService
+CalculationService --> PostgreSQL
+CalculationService --> Redis
+CalculationService --> CalculationQueue
+RiskService --> PostgreSQL
+RiskService --> RiskQueue
+ReportService --> PostgreSQL
+ReportService --> ReportQueue
+EventService --> PostgreSQL
+DataVisualizationService --> PostgreSQL
+DataVisualizationService --> Elasticsearch
+
+' AI服务连接
+BERTService --> Milvus
+
+@enduml

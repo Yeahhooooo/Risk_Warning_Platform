@@ -1,0 +1,118 @@
+@startuml 用户企业信息管理功能流程图
+
+!define RECTANGLE class
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 10
+
+title 用户/企业信息管理功能流程图
+
+actor "企业管理员" as Admin
+actor "企业成员" as Member
+participant "User and Auth Service" as UserAuthService
+participant "Enterprise Service" as EnterpriseService
+database "PostgreSQL" as PG
+database "Redis" as Redis
+
+== 企业注册流程 ==
+
+Admin -> UserAuthService : 1. 提交企业注册申请\n(统一社会信用代码)
+UserAuthService -> UserAuthService : 2. 验证用户身份
+
+UserAuthService -> EnterpriseService : 3. 企业注册请求
+EnterpriseService -> PG : 4. 检查信用代码唯一性\n(t_enterprise)
+PG -> EnterpriseService : 5. 返回检查结果
+
+alt 信用代码未被使用
+    EnterpriseService -> PG : 6. 创建企业记录\n(t_enterprise)
+    PG -> EnterpriseService : 7. 返回企业ID
+    
+    EnterpriseService -> PG : 8. 创建企业-用户关联\n(t_enterprise_user, role='admin')
+    PG -> EnterpriseService : 9. 确认关联创建
+    
+    EnterpriseService -> Redis : 10. 缓存企业信息\n(enterprise:{id})
+    
+    EnterpriseService -> UserAuthService : 11. 注册成功响应
+    UserAuthService -> Admin : 12. 企业注册成功
+else 信用代码已存在
+    EnterpriseService -> UserAuthService : 13. 注册失败响应
+    UserAuthService -> Admin : 14. 企业已存在提示
+end
+
+== 成员邀请流程 ==
+
+Admin -> UserAuthService : 15. 邀请成员请求\n(邮箱, 角色)
+UserAuthService -> UserAuthService : 16. 验证管理员权限
+
+UserAuthService -> PG : 17. 查询用户信息\n(t_user)
+PG -> UserAuthService : 18. 返回用户信息
+
+alt 用户不存在
+    UserAuthService -> PG : 19. 创建新用户记录\n(t_user)
+    PG -> UserAuthService : 20. 返回新用户ID
+end
+
+UserAuthService -> EnterpriseService : 21. 添加企业成员请求
+EnterpriseService -> PG : 22. 创建企业-用户关联\n(t_enterprise_user)
+PG -> EnterpriseService : 23. 确认关联创建
+
+EnterpriseService -> Redis : 24. 更新用户会话缓存\n(session:{userId})
+EnterpriseService -> UserAuthService : 25. 邀请成功响应
+UserAuthService -> Admin : 26. 成员邀请成功
+
+== 成员登录流程 ==
+
+Member -> UserAuthService : 27. 用户登录请求
+UserAuthService -> PG : 28. 查询用户信息\n(t_user)
+PG -> UserAuthService : 29. 返回用户数据
+
+UserAuthService -> PG : 30. 查询用户企业关联\n(t_enterprise_user)
+PG -> UserAuthService : 31. 返回企业权限信息
+
+UserAuthService -> Redis : 32. 创建用户会话\n(session:{userId})
+Redis -> UserAuthService : 33. 确认会话创建
+
+UserAuthService -> Member : 34. 返回访问令牌和权限信息
+
+== 企业信息维护流程 ==
+
+Admin -> UserAuthService : 35. 更新企业信息请求
+UserAuthService -> UserAuthService : 36. 验证Token和权限
+
+UserAuthService -> EnterpriseService : 37. 企业信息更新请求
+EnterpriseService -> PG : 38. 更新企业信息\n(t_enterprise)
+PG -> EnterpriseService : 39. 确认更新成功
+
+EnterpriseService -> Redis : 40. 更新企业缓存\n(enterprise:{id})
+EnterpriseService -> UserAuthService : 41. 更新成功响应
+UserAuthService -> Admin : 42. 企业信息更新成功
+
+== 角色权限管理流程 ==
+
+Admin -> UserAuthService : 43. 修改成员角色请求
+UserAuthService -> UserAuthService : 44. 验证管理员权限
+
+UserAuthService -> EnterpriseService : 45. 角色修改请求
+EnterpriseService -> PG : 46. 更新用户角色\n(t_enterprise_user)
+PG -> EnterpriseService : 47. 确认角色更新
+
+EnterpriseService -> Redis : 48. 更新用户权限缓存\n(session:{userId})
+EnterpriseService -> UserAuthService : 49. 角色修改成功
+UserAuthService -> Admin : 50. 权限修改完成
+
+note right of Redis
+  缓存内容包括：
+  - 用户会话信息
+  - 企业基础信息
+  - 用户权限信息
+  - 企业成员列表
+end note
+
+note right of PG
+  涉及的表：
+  - t_user (用户基础信息)
+  - t_enterprise (企业信息)
+  - t_enterprise_user (关联关系)
+end note
+
+@enduml

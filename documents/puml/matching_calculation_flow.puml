@@ -1,0 +1,228 @@
+@startuml 智能匹配与指标计算流程图
+
+!define RECTANGLE class
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 10
+
+title 智能匹配与指标计算流程图
+
+participant "Matching and Calculation Service" as MatchingService
+queue "Kafka" as Kafka
+database "PostgreSQL" as PG
+database "Elasticsearch" as ES
+database "Milvus" as Milvus
+database "Redis" as Redis
+participant "Thread Pool / Map Reduce" as ThreadPool
+
+== 消息消费与任务分发 ==
+
+Kafka -> MatchingService : 1. 消费指标计算任务消息\n(topic: indicator-calculation-tasks)
+note right of Kafka
+  消息内容：
+{
+  "messageId": "calc-task-002",
+  "taskType": "INDICATOR_PROCESSED",
+  "timestamp": "2025-11-07T14:45:00.456Z",
+  "source": "behavior-processor-service",
+  "traceId": "trace-12345",
+  "projectId": "101",
+  "assessmentId": "201",
+  "userId": "12345",
+  "enterpriseId": "1",
+}
+end note
+
+MatchingService -> Redis : 2. 检查任务幂等性\n(calc_task:{messageId})
+Redis -> MatchingService : 3. 返回检查结果
+
+alt 任务未处理
+    MatchingService -> Redis : 4. 标记任务开始处理
+    Redis -> MatchingService : 5. 确认标记成功
+    
+    MatchingService -> ES : 6. 查询项目下所有行为信息\n(project_id: {projectId})
+    ES -> MatchingService : 7. 返回行为数据列表
+    
+    MatchingService -> ThreadPool : 8. 分发行为数据到线程池\n(并行处理)
+    note right of ThreadPool
+      并行策略：
+      - 自定义线程池处理
+      - 每个线程处理一批行为数据
+      - 支持MapReduce模式
+      - 线程池大小可配置
+    end note
+else 任务已处理
+    MatchingService -> MatchingService : 9. 跳过重复任务
+end
+
+== 智能匹配处理（并行执行） ==
+
+loop 每个行为数据批次
+    ThreadPool -> ThreadPool : 10. 线程获取行为数据批次
+    
+    === 指标匹配 ===
+    
+    ThreadPool -> Milvus : 11. 向量相似度查询\n(behavior_vectors -> indicator_vectors)
+    note right of Milvus
+      查询参数：
+      - 查询向量: 行为BERT向量
+      - 返回数量: top3
+      - 相似度度量: COSINE
+      - 搜索集合: indicator_vectors
+    end note
+    Milvus -> ThreadPool : 12. 返回top3相似指标
+
+    ThreadPool -> ES : 13. 查询指标详细信息\n(t_indicator)
+    ES -> ThreadPool : 14. 返回指标配置信息
+    
+    ThreadPool -> ThreadPool : 15. 计算综合匹配度\n(向量相似度 + 标签交集 + 行业地域匹配)
+    note right of ThreadPool
+      匹配度计算：
+      - 向量相似度权重: 0.6
+      - 标签交集权重: 0.3
+      - 行业地域权重: 0.1
+      - 最终匹配度 > 阈值才选中
+    end note
+    
+    === 法规匹配 ===
+    
+    ThreadPool -> Milvus : 16. 向量相似度查询\n(behavior_vectors -> regulation_vectors)
+    note right of Milvus
+      查询参数：
+      - 查询向量: 行为BERT向量
+      - 返回数量: top5
+      - 相似度度量: COSINE
+      - 搜索集合: regulation_vectors
+    end note
+    Milvus -> ThreadPool : 17. 返回top5相似法规
+
+    ThreadPool -> ES : 18. 查询法规详细信息\n(t_regulation)
+    ES -> ThreadPool : 19. 返回法规配置信息
+    
+    ThreadPool -> ThreadPool : 20. 计算法规适用性\n(地域、主体、行业匹配度)
+    note right of ThreadPool
+      适用性计算：
+      - 地域匹配度
+      - 适用主体匹配度
+      - 行业匹配度
+      - 综合匹配度 > 阈值才适用
+    end note
+    
+    === 法规-指标关联计算 ===
+    
+    ThreadPool -> ThreadPool : 21. 计算法规与指标关联度
+    note right of ThreadPool
+      关联度计算：
+      法规与指标相似度 × 匹配度
+      > 阈值才影响指标计算
+      
+      多法规加权规则：
+      - 法规层级权重(国家1.0 > 企业0.7 > 行业0.4)
+      - 时效性权重(新0.7 > 旧0.3)
+      - 相似度权重
+      - 最终加权平均
+    end note
+    
+    === 指标计算执行 ===
+    
+    ThreadPool -> ThreadPool : 22. 解析指标计算规则
+    alt 有适用法规
+        ThreadPool -> ThreadPool : 23. 使用calculation_rule计算\n(结合法规权重)
+    else 无适用法规
+        ThreadPool -> ThreadPool : 24. 使用default_calculation_rule计算
+    end
+    
+    alt 二元判断规则
+        ThreadPool -> ThreadPool : 25. 执行条件判断\n(true_score/false_score)
+    else 区间取值规则
+        ThreadPool -> ThreadPool : 26. 执行数值计算\n(linear/reverse_linear/threshold)
+    end
+    
+    ThreadPool -> ThreadPool : 27. 生成指标计算结果
+    
+    === 存储与事件记录 ===
+    
+    ThreadPool -> PG : 28. 查询指标结果是否存在\n(SELECT FOR UPDATE)
+    PG -> ThreadPool : 29. 返回查询结果
+    
+    alt 指标结果不存在
+        ThreadPool -> PG : 30. 插入新指标结果\n(t_indicator_result)
+        PG -> ThreadPool : 31. 确认插入成功
+    else 指标结果已存在
+        ThreadPool -> ThreadPool : 32. 计算加权平均\n(多行为对应同指标)
+        ThreadPool -> PG : 33. 更新指标结果\n(UPDATE matched_behavior_ids)
+        PG -> ThreadPool : 34. 确认更新成功
+    end
+    
+    ThreadPool -> PG : 35. 记录指标计算事件\n(t_event: INDICATOR_CALCULATED)
+    PG -> ThreadPool : 36. 确认事件记录
+    
+    === 发送风险评估消息 ===
+    
+    ThreadPool -> ThreadPool : 37. 构建风险评估任务消息
+    note right of ThreadPool
+      消息内容：
+{
+  "messageId": "uuid-v4",
+  "taskType": "BEHAVIOR_PROCESSING",
+  "timestamp": "2025-11-07T14:30:00.123Z",
+  "source": "service-name",
+  "traceId": "distributed-trace-id",
+  "projectId": "101",
+  "assessmentId": "201",
+  "userId": "12345",
+  "enterpriseId": "1",
+  "indicatorResult": {}
+}
+    end note
+    
+    ThreadPool -> Kafka : 38. 发送风险评估任务\n(topic: risk-assessment-tasks)
+    Kafka -> ThreadPool : 39. 确认消息发送成功
+end
+
+
+
+note right of Milvus
+  向量查询优化：
+  - 预建索引(IVF_FLAT)
+  - 批量查询支持
+  - 相似度阈值过滤
+  - 分区查询加速
+end note
+
+note right of ES
+  数据查询策略：
+  - 复合查询(bool query)
+  - 过滤条件优化
+  - 分页批量查询
+  - 缓存热点数据
+end note
+
+note right of ThreadPool
+  并发处理策略：
+  - 线程池大小: CPU核数×2
+  - 队列容量: 1000
+  - 拒绝策略: CallerRuns
+  - 每个行为独立处理
+  - 独立存储和事件记录
+  - 独立发送风险评估任务
+end note
+
+note right of PG
+  数据一致性保证：
+  - 悲观锁(SELECT FOR UPDATE)
+  - 事务隔离级别: READ_COMMITTED
+  - 死锁检测与重试
+  - 每个指标独立事务处理
+end note
+
+note right of MatchingService
+  计算特点：
+  - 每个行为独立匹配计算
+  - 每个指标结果独立存储
+  - 每个计算完成独立发送消息
+  - 不进行批量汇总处理
+  - 支持高并发独立处理
+end note
+
+@enduml

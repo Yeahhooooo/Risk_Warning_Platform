@@ -1,0 +1,173 @@
+@startuml 数据标准化与向量化处理流程图
+
+!define RECTANGLE class
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 10
+
+title 数据标准化与向量化处理流程图
+
+participant "Behavior Processing Service" as BehaviorService
+participant "File Storage" as FileStorage
+participant "BERT Model Service" as BertService
+queue "Kafka" as Kafka
+database "PostgreSQL" as PG
+database "Elasticsearch" as ES
+database "Milvus" as Milvus
+database "Redis" as Redis
+
+== 消息消费与任务初始化 ==
+
+Kafka -> BehaviorService : 1. 消费行为处理任务消息\n(topic: behavior-processing-tasks)
+note right of Kafka
+  消息内容：
+  {
+    "messageId": "behavior-task-001",
+    "taskType": "BEHAVIOR_UPLOADED",
+    "projectId": "101",
+    "assessmentId": "201",
+    "dataSources": [
+      {
+        "type": "knowledge_query",
+        "fileUrl": "knowledge_data_101.json"
+      },
+      {
+        "type": "file_upload",
+        "fileUrl": "documents/101/doc1.pdf"
+      }
+    ]
+  }
+end note
+
+BehaviorService -> Redis : 2. 检查任务幂等性\n(fileUrl)
+Redis -> BehaviorService : 3. 返回检查结果
+
+alt 任务未处理
+    BehaviorService -> Redis : 4. 标记任务开始处理
+    Redis -> BehaviorService : 5. 确认标记成功
+else 任务已处理
+    BehaviorService -> BehaviorService : 8. 跳过重复任务
+end
+
+== 文件读取与文本提取 ==
+
+loop 遍历每个数据源文件
+    BehaviorService -> FileStorage : 9. 读取数据源文件
+    FileStorage -> BehaviorService : 10. 返回文件内容
+    
+    alt 文件类型为PDF/Word/Excel
+        BehaviorService -> BehaviorService : 11. 文档解析\n(提取文本内容)
+    else 文件类型为JSON(知识库数据)
+        BehaviorService -> BehaviorService : 12. JSON解析\n(提取结构化数据)
+    end
+    
+    BehaviorService -> BehaviorService : 13. 文本清洗\n(去除特殊字符、格式化)
+    BehaviorService -> BehaviorService : 14. 行为信息提取\n(识别行为描述段落)
+end
+
+== 数据标准化处理 ==
+
+BehaviorService -> BehaviorService : 15. 数据格式规范化
+note right of BehaviorService
+  标准化处理包括：
+  - 统一编码格式(UTF-8)
+  - 规范化日期时间格式
+  - 标准化数值格式
+  - 移除冗余空白字符
+  - 分段处理长文本
+end note
+
+BehaviorService -> BehaviorService : 16. 行为信息分类\n(定性/定量, 维度标签)
+BehaviorService -> BehaviorService : 17. 生成行为数据批次
+
+== BERT向量化处理 ==
+
+BehaviorService -> BertService : 18. 批量文本向量化请求
+note right of BertService
+  BERT处理参数：
+  - 模型: bert-base-chinese
+  - 最大序列长度: 512
+  - 批次大小: 32
+  - 向量维度: 768
+end note
+
+BertService -> BertService : 19. BERT模型推理\n(批量向量化)
+BertService -> BehaviorService : 20. 返回向量化结果
+
+== 多数据库同步存储 ==
+
+=== Elasticsearch存储 ===
+
+BehaviorService -> ES : 22. 批量插入行为数据\n(索引: t_behavior)
+ES -> BehaviorService : 23. 确认ES存储成功
+
+=== Milvus向量存储 ===
+
+BehaviorService -> Milvus : 24. 批量插入向量数据\n(集合: behavior_vectors)
+Milvus -> BehaviorService : 25. 确认Milvus存储成功
+
+== 缓存更新与状态管理 ==
+
+BehaviorService -> Redis : 28. 更新处理进度缓存\n(project:{id}:behavior_processing)
+Redis -> BehaviorService : 29. 确认缓存更新
+
+BehaviorService -> PG : 35. 更新项目状态为行为处理任务完成\n(behavior_task:{messageId})
+PG -> BehaviorService : 36. 确认任务状态更新
+
+BehaviorService -> PG : 37. 记录任务完成事件\n(t_event: BEHAVIOR_PROCESSING_COMPLETED)
+PG -> BehaviorService : 38. 确认最终事件记录
+
+== 发送后续处理消息 ==
+
+BehaviorService -> BehaviorService : 32. 构建指标匹配任务消息
+note right of BehaviorService
+  消息内容：
+{
+  "messageId": "calc-task-002",
+  "taskType": "INDICATOR_PROCESSED",
+  "timestamp": "2025-11-07T14:45:00.456Z",
+  "source": "behavior-processor-service",
+  "traceId": "trace-12345",
+  "projectId": "101",
+  "assessmentId": "201",
+  "userId": "12345",
+  "enterpriseId": "1",
+}
+end note
+
+BehaviorService -> Kafka : 33. 发送指标匹配任务\n(topic: indicator-calculation-tasks)
+Kafka -> BehaviorService : 34. 确认消息发送成功
+
+
+note right of FileStorage
+  处理的文件类型：
+  - PDF文档 (OCR文本提取)
+  - Word文档 (结构化文本)
+  - Excel表格 (数据提取)
+  - JSON文件 (知识库数据)
+end note
+
+note right of ES
+  Elasticsearch索引结构：
+  - t_behavior: 行为信息主索引
+  - 支持全文搜索和聚合
+  - 分词器: ik_max_word
+end note
+
+note right of Milvus
+  Milvus集合配置：
+  - 向量维度: 768
+  - 索引类型: IVF_FLAT
+  - 相似度度量: COSINE
+  - 分区: 按项目ID
+end note
+
+note right of BehaviorService
+  处理能力：
+  - 支持批量并行处理
+  - 错误重试机制
+  - 进度监控和报告
+  - 幂等性保证
+end note
+
+@enduml

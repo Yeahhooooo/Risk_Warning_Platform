@@ -1,0 +1,138 @@
+@startuml 初始数据收集功能流程图
+
+!define RECTANGLE class
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 10
+
+title 初始数据收集功能流程图
+
+actor "项目编辑者" as Editor
+participant "User and Auth Service" as UserAuthService
+participant "Project Service" as ProjectService
+participant "Data Collection Service" as DataCollectionService
+participant "Knowledge Service" as KnowledgeService
+participant "File Storage" as FileStorage
+queue "Kafka" as Kafka
+database "PostgreSQL" as PG
+database "Elasticsearch" as ES
+database "Redis" as Redis
+
+== 系统自动数据收集 ==
+
+ProjectService -> DataCollectionService : 1. 项目创建完成，启动风险评估\n(projectId, assessmentId, enterpriseInfo)
+DataCollectionService -> PG : 2. 更新评估状态为"数据收集中"\n(t_assessment_result)
+PG -> DataCollectionService : 3. 确认状态更新
+
+=== 自动知识库数据查询 ===
+
+DataCollectionService -> KnowledgeService : 4. 企业行为信息查询\n(基于企业ID, 行业, 地域)
+KnowledgeService -> ES : 5. 查询企业档案数据
+ES -> KnowledgeService : 6. 返回匹配的行为信息
+
+KnowledgeService -> FileStorage : 7. 保存查询结果到中间文件\n(knowledge_data_{projectId}.json)
+FileStorage -> KnowledgeService : 8. 返回文件路径
+
+KnowledgeService -> DataCollectionService : 9. 知识库数据收集完成
+
+== 手动文档上传（可选） ==
+
+Editor -> DataCollectionService : 10. 上传企业文档请求\n(PDF, Word, Excel)
+DataCollectionService -> UserAuthService : 11. 验证项目编辑权限
+UserAuthService -> DataCollectionService : 12. 返回权限验证结果
+
+alt 权限验证通过
+    DataCollectionService -> FileStorage : 13. 文档上传请求
+    FileStorage -> FileStorage : 14. 存储原始文档\n(documents/{projectId}/)
+    FileStorage -> DataCollectionService : 15. 返回文档存储路径
+
+    DataCollectionService -> PG : 16. 记录文档上传事件\n(t_event: DOCUMENT_UPLOADED)
+    PG -> DataCollectionService : 17. 确认事件记录
+
+    DataCollectionService -> Editor : 18. 文档上传完成确认
+else 权限验证失败
+    DataCollectionService -> Editor : 19. 返回权限错误
+end
+
+=== 创建处理任务记录 ===
+
+DataCollectionService -> PG : 20. 记录数据处理任务\n(t_event: BEHAVIOR_UPLOADED)
+PG -> DataCollectionService : 21. 确认事件记录
+
+DataCollectionService -> Redis : 22. 缓存处理任务状态\n(project:{id}:data_collection)
+Redis -> DataCollectionService : 23. 确认缓存创建
+
+== 发送Kafka消息 ==
+
+DataCollectionService -> DataCollectionService : 24. 构建Kafka消息体
+DataCollectionService -> Kafka : 25. 发送行为处理任务消息\n(topic: behavior-data-ingestion)
+note right of Kafka
+  消息格式：
+{
+  "messageId": "behavior-task-001",
+  "taskType": "BEHAVIOR_UPLOADED",
+  "timestamp": "2025-11-07T14:30:00.123Z",
+  "source": "data-collection-service",
+  "traceId": "trace-12345",
+  "projectId": "101",
+  "assessmentId": "201",
+  "dataSources": [
+    {
+      "type": "knowledge_query",
+      "fileUrl": "knowledge_data_101.json"
+    },
+    {
+      "type": "file_upload",
+      "fileUrl": "documents/101/doc1.pdf"
+    }
+  ]
+}
+end note
+
+Kafka -> DataCollectionService : 26. 确认消息发送成功
+
+DataCollectionService -> PG : 27. 更新评估状态为"数据处理中"\n(t_assessment_result)
+PG -> DataCollectionService : 28. 确认状态更新
+
+note right of FileStorage
+  存储结构：
+  /data/{projectId}/
+  ├── documents/
+  │   ├── uploaded_doc1.pdf
+  │   └── uploaded_doc2.docx
+  └── knowledge/
+      └── knowledge_data.json
+end note
+
+note right of PG
+  涉及的表：
+  - t_project (项目状态)
+  - t_assessment_result (评估状态)
+  - t_event (事件记录)
+end note
+
+note right of Redis
+  缓存内容：
+  - 数据收集任务状态
+  - 文件处理进度
+  - 临时处理结果
+end note
+
+note left of DataCollectionService
+  服务职责：
+  1. 负责所有数据收集工作
+  2. 协调知识库查询和文档上传
+  3. 统一管理数据源和文件存储
+  4. 构建和发送数据处理任务
+  5. 维护数据收集状态和进度
+end note
+
+note right of ProjectService
+  项目服务角色：
+  1. 项目创建完成后触发数据收集
+  2. 接收数据收集完成通知
+  3. 专注于项目生命周期管理
+  4. 不直接处理数据收集细节
+end note
+
+@enduml

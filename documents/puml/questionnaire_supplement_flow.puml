@@ -1,0 +1,238 @@
+@startuml 问卷补充与增量更新流程图
+
+!define RECTANGLE class
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 10
+
+title 问卷补充与增量更新流程图
+
+participant "Data Collection Service" as DataCollectionService
+queue "Kafka" as Kafka
+database "PostgreSQL" as PG
+database "Elasticsearch" as ES
+database "Redis" as Redis
+participant "Notification Service" as NotificationService
+participant "WebSocket Gateway" as WSGateway
+participant "Frontend" as Frontend
+participant "Data Processing Service" as DataService
+
+== 事件接收与任务初始化 ==
+
+Kafka -> DataCollectionService : 1. 消费问卷生成任务消息\n(topic: questionnaire-generation-tasks)
+note right of Kafka
+  消息内容：
+{
+  "messageId": "uuid-v4",
+  "taskType": "BEHAVIOR_PROCESSING",
+  "timestamp": "2025-11-07T14:30:00.123Z",
+  "source": "service-name",
+  "traceId": "distributed-trace-id",
+  "projectId": "101",
+  "assessmentId": "201",
+  "userId": "12345",
+  "enterpriseId": "1"
+}
+end note
+
+DataCollectionService -> Redis : 2. 检查任务幂等性\n(questionnaire_task:{messageId})
+Redis -> DataCollectionService : 3. 返回检查结果
+
+alt 任务未处理
+    DataCollectionService -> Redis : 4. 标记任务开始处理
+    Redis -> DataCollectionService : 5. 确认标记成功
+else 任务已处理
+    DataCollectionService -> DataCollectionService : 6. 跳过重复任务，结束流程
+end
+
+== 覆盖度分析与缺口识别 ==
+
+DataCollectionService -> PG : 7. 查询已完成指标结果\n(t_indicator_result)
+PG -> DataCollectionService : 8. 返回已完成指标列表
+
+
+
+DataCollectionService -> DataCollectionService : 11. 分析指标覆盖度
+note right of DataCollectionService
+  覆盖度分析：
+  - 计算各维度完成率
+  - 识别缺失关键指标
+  - 按重要性和风险等级排序
+  - 确定补充优先级
+end note
+
+DataCollectionService -> ES : 12. 查询缺失指标详细信息
+ES -> DataCollectionService : 13. 返回指标详细信息
+
+== 问卷内容生成 ==
+
+DataCollectionService -> DataCollectionService : 14. 构建问卷结构
+note right of DataCollectionService
+  问卷构建规则：
+  - 根据缺失指标动态生成问题
+  - 按维度分组组织问题
+  - 根据指标类型生成题型
+  - 添加必要的说明文本
+  - 设置验证规则
+  - 确定填写顺序
+  - 生成唯一问卷ID用于跟踪
+end note
+
+DataCollectionService -> DataCollectionService : 15. 生成问卷JSON结构
+note right of DataCollectionService
+  问卷JSON格式：
+  {
+    "questionnaireId": "Q-{projectId}-{timestamp}",
+    "projectId": "101",
+    "assessmentId": "201",
+    "missingIndicators": ["IND_050", "IND_051"],
+    "sections": [
+      {
+        "dimensionId": "D001",
+        "dimensionName": "合规制度建设",
+        "questions": [...]
+      }
+    ]
+  }
+end note
+
+DataCollectionService -> Redis : 16. 缓存问卷结构和状态\n(questionnaire:{questionnaireId})
+Redis -> DataCollectionService : 17. 确认缓存成功
+
+== 用户通知与问卷发布 ==
+
+DataCollectionService -> NotificationService : 18. 发送问卷通知
+note right of NotificationService
+  通知内容：
+  - 问卷生成完成
+  - 缺失指标数量
+  - 预计填写时间
+  - 重要性说明
+  - 问卷访问链接
+end note
+NotificationService -> DataCollectionService : 19. 确认通知发送
+
+DataCollectionService -> WSGateway : 20. 实时推送问卷事件
+note right of WSGateway
+  WebSocket消息：
+  {
+    "type": "QUESTIONNAIRE_AVAILABLE",
+    "projectId": "101",
+    "questionnaireId": "Q-101-1699368000",
+    "missingCount": 30,
+    "estimatedTime": "15分钟"
+  }
+end note
+WSGateway -> Frontend : 21. 推送到前端界面
+Frontend -> DataCollectionService : 22. 请求问卷详情
+
+== 问卷填写管理 ==
+
+Frontend -> DataCollectionService : 23. 获取问卷内容\n(GET /api/questionnaire/{id})
+DataCollectionService -> Redis : 24. 获取缓存的问卷结构\n(questionnaire:{id})
+Redis -> DataCollectionService : 25. 返回问卷JSON结构
+
+DataCollectionService -> Redis : 26. 检查填写进度\n(questionnaire:{id}:progress)
+Redis -> DataCollectionService : 27. 返回当前进度
+
+DataCollectionService -> Frontend : 28. 返回问卷内容和进度
+
+loop 分步填写过程
+    Frontend -> DataCollectionService : 29. 保存答案草稿\n(POST /api/questionnaire/{id}/draft)
+    
+    DataCollectionService -> DataCollectionService : 30. 数据格式校验
+    note right of DataCollectionService
+      校验规则：
+      - 数据类型检查
+      - 必填字段验证
+      - 格式规范检查
+      - 逻辑一致性验证
+    end note
+    
+    alt 校验通过
+        DataCollectionService -> Redis : 31. 保存草稿数据\n(questionnaire:{id}:draft)
+        Redis -> DataCollectionService : 32. 确认草稿保存
+        
+        DataCollectionService -> Redis : 33. 更新填写进度\n(questionnaire:{id}:progress)
+        Redis -> DataCollectionService : 34. 确认进度更新
+        
+        DataCollectionService -> Frontend : 35. 返回保存成功
+        
+        DataCollectionService -> WSGateway : 36. 推送进度更新
+        WSGateway -> Frontend : 37. 实时更新进度条
+        
+    else 校验失败
+        DataCollectionService -> Frontend : 38. 返回校验错误信息
+    end
+end
+
+== 数据验证与正式提交 ==
+
+Frontend -> DataCollectionService : 39. 提交完整问卷\n(POST /api/questionnaire/{id}/submit)
+
+DataCollectionService -> DataCollectionService : 40. 完整性检查
+note right of DataCollectionService
+  完整性检查：
+  - 所有必填项已填写
+  - 关键指标信息完整
+  - 数据逻辑一致性
+  - 格式规范符合要求
+end note
+
+alt 完整性检查通过
+    DataCollectionService -> Redis : 41. 标记问卷已完成\n(questionnaire:{id}:status = "completed")
+    Redis -> DataCollectionService : 42. 确认状态更新
+    
+    DataCollectionService -> Redis : 43. 清理草稿数据\n(DEL questionnaire:{id}:draft)
+    Redis -> DataCollectionService : 44. 确认草稿清理
+    
+else 完整性检查失败
+    DataCollectionService -> Frontend : 45. 返回缺失项提示
+    Frontend -> Frontend : 46. 高亮未完成项目
+end
+
+== 事件记录 ==
+
+DataCollectionService -> Redis : 52. 标记任务处理完成\n(questionnaire_task:{messageId})
+Redis -> DataCollectionService : 53. 确认任务状态更新
+
+DataCollectionService -> PG : 54. 记录问卷流程完成事件\n(t_event: QUESTIONNAIRE_PROCESS_COMPLETED)
+PG -> DataCollectionService : 55. 确认最终事件记录
+
+== 增量数据处理触发 ==
+
+DataCollectionService -> DataCollectionService : 56. 构建行为信息消息
+DataCollectionService -> Kafka : 57. 发送行为补充消息
+Kafka -> DataService : 58. 触发数据标准化处理
+note right of DataService
+  返回5.1.4.2节点：
+  智能匹配与指标计算
+end note
+
+note right of Redis
+  Redis数据结构：
+  - questionnaire:{id}: 完整问卷JSON结构
+  - questionnaire:{id}:status: 问卷状态
+  - questionnaire:{id}:progress: 填写进度
+  - questionnaire:{id}:draft: 草稿数据
+  - questionnaire_task:{messageId}: 幂等标记
+  - 设置合理过期时间
+end note
+
+note right of PG
+  数据库表（仅用于事件记录）：
+  - t_event: 事件记录
+  - 不再存储问卷结构和答案
+end note
+
+note right of DataCollectionService
+  处理特点：
+  - 动态生成问卷结构，不存储到数据库
+  - 支持分步填写和草稿保存
+  - 实时进度跟踪和推送
+  - 完整的数据验证机制
+  - 无缝衔接数据处理流程
+  - 用户友好的交互体验
+end note
+
+@enduml

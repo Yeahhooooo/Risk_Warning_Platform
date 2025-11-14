@@ -1,0 +1,141 @@
+@startuml 评估报告生成功能流程图
+
+!define RECTANGLE class
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName "Microsoft YaHei"
+skinparam defaultFontSize 10
+
+title 评估报告生成功能流程图
+
+participant "Report Service" as ReportService
+queue "Kafka" as Kafka
+database "PostgreSQL" as PG
+database "Elasticsearch" as ES
+database "Redis" as Redis
+participant "Notification Service" as NotificationService
+participant "WebSocket" as WSGateway
+participant "File Storage" as FileStorage
+participant "Visualization Service" as VisualizationService
+
+
+
+=== 维度与层级风险聚合 ===
+
+ReportService -> ReportService : 21. 按维度聚合风险统计
+note right of ReportService
+  维度风险聚合：
+  - 按dimension分组统计风险数量
+  - 计算各维度平均分数
+  - 识别高风险维度
+  - 生成维度风险分布
+end note
+
+ReportService -> ReportService : 22. 按指标层级聚合风险
+note right of ReportService
+  层级风险聚合：
+  - 从叶子节点向上聚合
+  - 计算各层级综合分数
+  - 生成层级风险树状图
+end note
+
+== 评估结束任务 ==
+
+ReportService -> NotificationService : 23. 发送报告评估结束通知
+NotificationService -> ReportService : 24. 确认通知发送
+
+ReportService -> WSGateway : 25. 推送评估结束通知
+note right of WSGateway
+  WebSocket消息完成通知内容：
+  - 评估结束
+  - 报告生成可用
+end note
+WSGateway -> ReportService : 26. 确认状态推送
+
+ReportService -> PG : 27. 记录报告生成事件\n(t_event: ASSESSMENT_COMPLETED)
+PG -> ReportService : 28. 确认事件记录
+
+ReportService -> Redis : 29. 清理项目评估相关缓存
+Redis -> ReportService : 30. 确认状态清理
+
+ReportService -> Redis : 31. 缓存评估结果信息
+Redis -> ReportService : 32. 确认缓存更新
+
+== 可视化图表生成 ==
+
+ReportService -> VisualizationService : 33. 请求生成可视化图表（未定）
+note right of VisualizationService
+  图表生成需求：
+  - 维度雷达图
+  - 风险分布饼图
+  - 指标层级树状图
+  - 风险趋势柱状图
+  - 合规评分仪表盘
+end note
+
+VisualizationService -> VisualizationService : 34. 数据处理与图表渲染
+VisualizationService -> ReportService : 35. 返回图表生成结果
+
+== 生成报告 ==
+
+ReportService -> ReportService : 38. 选择报告类型（PDF, Word...）
+ReportService -> ReportService : 39. 编译报告内容
+note right of ReportService
+  报告内容结构：
+  - 执行摘要
+  - 企业基本信息
+  - 评估方法说明
+  - 各维度详细分析
+  - 风险实例清单
+  - 可视化图表
+  - 改进建议
+  - 附录资料
+end note
+
+ReportService -> FileStorage : 40. 生成PDF报告\n(reports/{assessmentId}/report.pdf)
+FileStorage -> ReportService : 41. 返回PDF文件路径
+
+ReportService -> FileStorage : 42. 生成Word报告\n(reports/{assessmentId}/report.docx)
+FileStorage -> ReportService : 43. 返回Word文件路径
+
+
+note right of FileStorage
+  文件存储结构：
+  /reports/{assessmentId}/
+  ├── report.pdf
+  ├── report.docx
+  ├── data.xlsx
+  └── charts/
+      ├── dimension_radar.png
+      ├── risk_distribution.png
+      ├── indicator_tree.png
+      └── compliance_dashboard.png
+end note
+
+note right of PG
+  涉及的表：
+  - t_project: 项目信息
+  - t_assessment_result: 评估结果
+  - t_indicator_result: 指标结果
+  - t_report_access: 报告访问控制
+  - t_event: 事件记录
+end note
+
+note right of ES
+  查询的索引：
+  - t_indicator: 指标配置
+  - t_risk: 风险实例
+  - 支持复杂聚合查询
+  - 维度和层级分析
+end note
+
+note right of ReportService
+  处理特点：
+  - 完整的数据聚合分析
+  - 智能调节因子处理
+  - 多维度风险传播
+  - 多格式报告生成
+  - 严格的权限控制
+  - 实时进度推送
+end note
+
+@enduml

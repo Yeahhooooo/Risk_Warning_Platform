@@ -1,0 +1,171 @@
+@startuml 风险合规预警系统实体关系图
+
+!theme plain
+skinparam linetype ortho
+
+title 风险合规预警系统 - 实体关系图
+
+' 核心业务实体
+entity "用户 (User)" as user {
+  <u>id</u>: BIGSERIAL
+  --
+  email: TEXT (UNIQUE)
+  full_name: TEXT
+  created_at: TIMESTAMPTZ
+}
+
+entity "企业 (Enterprise)" as enterprise {
+  <u>id</u>: BIGSERIAL
+  --
+  name: TEXT
+  credit_code: TEXT (UNIQUE)
+  industry: TEXT
+  legal_representative: TEXT
+  created_at: TIMESTAMPTZ
+}
+
+entity "项目 (Project)" as project {
+  <u>id</u>: BIGSERIAL
+  --
+  <color:blue>enterprise_id</color>: BIGINT
+  name: TEXT
+  status: TEXT
+  industry: TEXT
+  region: TEXT
+  created_at: TIMESTAMPTZ
+}
+
+entity "评估结果 (Assessment)" as assessment {
+  <u>id</u>: BIGSERIAL
+  --
+  <color:blue>project_id</color>: BIGINT
+  assessment_date: TIMESTAMPTZ
+  overall_score: NUMERIC
+  overall_risk_level: INT
+  created_at: TIMESTAMPTZ
+}
+
+' 关联关系实体
+entity "企业用户关联" as enterprise_user {
+  <u>enterprise_id, user_id</u>
+  --
+  <color:blue>enterprise_id</color>: BIGINT
+  <color:blue>user_id</color>: BIGINT
+  role: TEXT
+}
+
+entity "项目成员" as project_member {
+  <u>project_id, user_id</u>
+  --
+  <color:blue>project_id</color>: BIGINT
+  <color:blue>user_id</color>: BIGINT
+  role: TEXT
+}
+
+' 业务数据实体
+entity "行为信息 (Behavior)" as behavior {
+  <u>es_id</u>: TEXT
+  --
+  project_id: BIGINT
+  description: TEXT
+  type: TEXT
+  dimension: TEXT
+  quantitative_data: DOUBLE
+  behavior_date: DATE
+}
+
+entity "指标定义 (Indicator)" as indicator {
+  <u>es_id</u>: TEXT
+  --
+  name: TEXT
+  type: TEXT
+  indicator_level: INTEGER
+  parent_indicator_id: TEXT
+  dimension: TEXT
+  max_score: DOUBLE
+  calculation_rule: JSONB
+  risk_rule: JSONB
+}
+
+entity "指标计算结果 (IndicatorResult)" as indicator_result {
+  <u>id</u>: BIGSERIAL
+  --
+  <color:blue>project_id</color>: BIGINT
+  <color:blue>assessment_id</color>: BIGINT
+  indicator_es_id: TEXT
+  calculated_score: NUMERIC
+  risk_triggered: BOOLEAN
+  calculated_at: TIMESTAMPTZ
+}
+
+entity "法规标准 (Regulation)" as regulation {
+  <u>es_id</u>: TEXT
+  --
+  name: TEXT
+  type: TEXT
+  dimension: TEXT
+  industry: TEXT
+  region: TEXT
+  full_text: TEXT
+}
+
+entity "风险实例 (Risk)" as risk {
+  <u>es_id</u>: TEXT
+  --
+  project_id: BIGINT
+  assessment_id: BIGINT
+  name: TEXT
+  dimension: TEXT
+  risk_level: TEXT
+  status: TEXT
+  created_at: TIMESTAMPTZ
+}
+
+entity "系统事件 (Event)" as event {
+  <u>id</u>: BIGSERIAL
+  --
+  event_type: TEXT
+  <color:blue>user_id</color>: BIGINT
+  <color:blue>project_id</color>: BIGINT
+  created_at: TIMESTAMPTZ
+}
+
+' 主要业务关系
+user ||--o{ enterprise_user : "belongs to"
+enterprise ||--o{ enterprise_user : "has members"
+enterprise ||--o{ project : "owns"
+project ||--o{ project_member : "has members"
+user ||--o{ project_member : "participates in"
+
+project ||--o{ assessment : "has assessments"
+project ||--o{ behavior : "contains behaviors"
+project ||--o{ indicator_result : "has indicator results"
+project ||--o{ risk : "generates risks"
+project ||--o{ event : "triggers events"
+
+assessment ||--o{ indicator_result : "includes"
+assessment ||--o{ risk : "produces"
+
+user ||--o{ event : "performs"
+
+' 计算和触发关系
+indicator ||--o{ indicator_result : "calculated as"
+indicator_result ||--o{ risk : "triggers"
+behavior ||--|| indicator : "matches"
+regulation ||--|| indicator : "references"
+
+' 层级关系
+indicator ||--o{ indicator : "parent-child"
+
+note left of indicator_result : 核心计算结果表\n连接静态配置与动态结果
+
+note bottom of risk : 动态生成的风险实例\n基于指标计算结果触发
+
+note right of behavior : 企业行为数据\n支持向量搜索和匹配
+
+note left of regulation : 法规标准库\n支持语义搜索
+
+@enduml
+
+
+
