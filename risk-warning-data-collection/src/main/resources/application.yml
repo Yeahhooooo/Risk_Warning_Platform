@@ -1,6 +1,4 @@
 spring:
-  profiles:
-    active: dev
   # 文件上传配置
   servlet:
     multipart:
@@ -8,11 +6,3 @@ spring:
       max-request-size: 50MB
 server:
   port: 8085
-management:
-  endpoints:
-    web:
-      exposure:
-        include: "*"
-  endpoint:
-    health:
-      show-details: always

@@ -60,6 +60,20 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
+
+        <!-- Common Module -->
+        <dependency>
+            <groupId>com.riskwarning</groupId>
+            <artifactId>risk-warning-common</artifactId>
+            <!--   spring cloud gateway conflicts with spring-boot-starter-web, exclude it -->
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-web</artifactId>
+                </exclusion>
+            </exclusions>
+            <version>1.0.0</version>
+        </dependency>
     </dependencies>
 
     <build>

@@ -1,0 +1,13 @@
+spring:
+  cloud:
+    nacos:
+      config:
+        server-addr: 8.154.16.225:8848
+        file-extension: yml
+        group: DEFAULT_GROUP
+        shared-configs:
+          - data-id: common-dev.yaml
+      discovery:
+        enabled: true
+        namespace: 58bc8df9-455d-411b-9828-c48b402de048
+        server-addr: 8.154.16.225:8848

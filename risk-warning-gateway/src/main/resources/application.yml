@@ -1,6 +1,4 @@
 spring:
-  profiles:
-    active: dev
   cloud:
     gateway:
       routes:
@@ -89,6 +87,12 @@ spring:
             - Path=/api/notification/**
           filters:
             - StripPrefix=2
+        - id: noticication-service-ws
+          uri: lb://risk-warning-notification
+          predicates:
+              - Path=/api/notification/**
+          filters:
+              - StripPrefix=2
       globalcors:
         corsConfigurations:
           '[/**]':
@@ -99,11 +103,3 @@ spring:
 
 server:
   port: 8088
-management:
-  endpoints:
-    web:
-      exposure:
-        include: "*"
-  endpoint:
-    health:
-      show-details: always

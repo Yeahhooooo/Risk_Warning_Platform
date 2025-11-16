@@ -1,15 +1,6 @@
 spring:
+  profiles:
+    active: common
   application:
     name: risk-warning-behavior-processing
-  cloud:
-    nacos:
-      config:
-        server-addr: 8.154.16.225:8848
-        file-extension: yml
-        group: DEFAULT_GROUP
-        shared-configs:
-          - data-id: common-dev.yaml
-      discovery:
-        enabled: true
-        server-addr: 8.154.16.225:8848
 

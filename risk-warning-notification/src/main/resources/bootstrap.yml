@@ -1,15 +1,14 @@
 spring:
+  profiles:
+    active: common
   application:
     name: risk-warning-notification
   cloud:
     nacos:
-      config:
-        server-addr: 8.154.16.225:8848
-        file-extension: yml
-        group: DEFAULT_GROUP
-        shared-configs:
-          - data-id: common-dev.yaml
       discovery:
-        enabled: true
-        server-addr: 8.154.16.225:8848
-
+        # extra metadata for netty websocket port
+        metadata:
+            websocketPort: ${netty.websocket.port}
+netty:
+  websocket:
+    port: 9090
