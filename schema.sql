@@ -31,6 +31,7 @@ CREATE TYPE indicator_risk_status_enum AS ENUM ('未评估', '已评估');
 CREATE TABLE IF NOT EXISTS public.t_user (
     id BIGSERIAL PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
     full_name TEXT,
     avatar_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS public.t_user (
 
 COMMENT ON TABLE public.t_user IS '用户信息表';
 COMMENT ON COLUMN public.t_user.email IS '用户邮箱，唯一标识';
+COMMENT ON COLUMN public.t_user.password IS '用户密码的哈希值';
 COMMENT ON COLUMN public.t_user.full_name IS '用户全名';
 
 
