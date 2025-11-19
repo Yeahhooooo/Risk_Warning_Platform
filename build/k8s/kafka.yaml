@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: rwp
+spec:
+  type: NodePort
+  ports:
+    - name: internal
+      port: 29092
+      targetPort: 29092
+    - name: external
+      port: 9092
+      targetPort: 9092
+      nodePort: 30092   # 外部访问使用：http://node-ip:30092
+  selector:
+    app: kafka
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: rwp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: bitnami/kafka:3.6.0
+          ports:
+            - containerPort: 29092
+            - containerPort: 9092
+          env:
+            - name: KAFKA_BROKER_ID
+              value: "1"
+
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: zookeeper:2181
+
+            # INTERNAL listener (k8s 内部微服务访问)
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+
+            - name: KAFKA_LISTENERS
+              value: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+
+            # EXTERNAL 需要暴露给外部用户 → Node IP:30092
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: INTERNAL://kafka:29092,EXTERNAL://$(NODE_IP):30092
+
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: INTERNAL
+
+            # 必须给 Pod 提供 NODE_IP
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+
+            # 创建 topics
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: "true"
+            - name: KAFKA_CREATE_TOPICS
+              value: "test:1:1,behavior_processing_tasks:3:1,indicator_calculation_tasks:3:1,risk_assessment_tasks:3:1,questionnaire_reminder_tasks:3:1,assessment_completed_events:3:1"

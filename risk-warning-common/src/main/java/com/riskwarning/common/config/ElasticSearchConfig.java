@@ -19,16 +19,9 @@ public class ElasticSearchConfig {
     @Value("${spring.elasticsearch.uris}")
     private String esUris;
 
-    @Value("${spring.elasticsearch.api-key}")
-    private String esApiKey;
-
     @Bean
     public ElasticsearchClient elasticsearchClient() {
-        RestClient restClient = RestClient.builder(HttpHost.create(esUris))
-                .setDefaultHeaders(new Header[]{
-                        new BasicHeader("Authorization", "ApiKey " + esApiKey)
-                })
-                .build();
+        RestClient restClient = RestClient.builder(HttpHost.create(esUris)).build();
         ElasticsearchTransport elasticsearchTransport = new RestClientTransport(restClient, new JacksonJsonpMapper());
         return new ElasticsearchClient(elasticsearchTransport);
     }

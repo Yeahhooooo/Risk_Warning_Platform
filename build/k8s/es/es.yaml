@@ -1,0 +1,175 @@
+# Elasticsearch ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-config
+  namespace: rwp
+  labels:
+    app: elasticsearch
+data:
+  elasticsearch.yml: |
+    cluster.name: risk-warning-cluster
+    node.name: ${HOSTNAME}
+    network.host: 0.0.0.0
+    http.port: 9200
+    discovery.type: single-node
+    bootstrap.memory_lock: true
+    
+    # Security settings - disabled for development
+    xpack.security.enabled: false
+    xpack.security.enrollment.enabled: false
+    xpack.security.http.ssl.enabled: false
+    xpack.security.transport.ssl.enabled: false
+    
+    # Disk allocation settings
+    cluster.routing.allocation.disk.watermark.low: 85%
+    cluster.routing.allocation.disk.watermark.high: 90%
+    cluster.routing.allocation.disk.watermark.flood_stage: 95%
+    
+    # CORS settings
+    http.cors.enabled: true
+    http.cors.allow-origin: "*"
+    http.cors.allow-methods: OPTIONS,HEAD,GET,POST,PUT,DELETE
+    http.cors.allow-headers: X-Requested-With,X-Auth-Token,Content-Type,Content-Length
+    
+    # Path settings
+    path.data: /usr/share/elasticsearch/data
+    path.logs: /usr/share/elasticsearch/logs
+
+---
+# # Elasticsearch PersistentVolume (注释掉 - 没有集群权限)
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+#   name: elasticsearch-pv
+#   namespace: rwp
+#   labels:
+#     app: elasticsearch
+# spec:
+#   capacity:
+#     storage: 10Gi
+#   accessModes:
+#     - ReadWriteOnce
+#   hostPath:
+#     path: "/home/rwp/yaml/es/esData"
+
+---
+# # Elasticsearch PersistentVolumeClaim (注释掉 - 没有 PVC 权限)
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: elasticsearch-pvc
+#   namespace: rwp
+#   labels:
+#     app: elasticsearch
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 10Gi
+
+---
+# Elasticsearch Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-service
+  namespace: rwp
+  labels:
+    app: elasticsearch
+spec:
+  type: NodePort  # 使用 NodePort 供外部访问
+  ports:
+    - name: http
+      port: 9200
+      targetPort: 9200
+      nodePort: 30920  # 外部访问端口
+      protocol: TCP
+    - name: transport
+      port: 9300
+      targetPort: 9300
+      nodePort: 30930  # 外部访问端口
+      protocol: TCP
+  selector:
+    app: elasticsearch
+
+---
+# Elasticsearch Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch
+  namespace: rwp
+  labels:
+    app: elasticsearch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      containers:
+        - name: elasticsearch
+          image: registry.cn-hangzhou.aliyuncs.com/hyca/es_ik_cn:latest
+          ports:
+            - containerPort: 9200
+              name: http
+            - containerPort: 9300
+              name: transport
+          env:
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ES_JAVA_OPTS
+              value: "-Xms1024m -Xmx1024m"
+          resources:
+            requests:
+              memory: "1.5Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          volumeMounts:
+            # - name: elasticsearch-data  # 注释掉 - 没有持久化存储权限
+            #   mountPath: /usr/share/elasticsearch/data
+            - name: elasticsearch-config
+              mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              subPath: elasticsearch.yml
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            capabilities:
+              add:
+                - IPC_LOCK
+      volumes:
+        # - name: elasticsearch-data  # 注释掉 - 没有持久化存储权限
+        #   persistentVolumeClaim:
+        #     claimName: elasticsearch-pvc
+        - name: elasticsearch-config
+          configMap:
+            name: elasticsearch-config
+            items:
+              - key: elasticsearch.yml
+                path: elasticsearch.yml
+      securityContext:
+        fsGroup: 1000

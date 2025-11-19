@@ -1,0 +1,149 @@
+# Kibana ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kibana-config
+  namespace: rwp
+  labels:
+    app: kibana
+data:
+  kibana.yml: |
+    server.host: "0.0.0.0"
+    server.port: 5601
+    server.name: "kibana"
+    
+    # Elasticsearch connection
+    elasticsearch.hosts: ["http://elasticsearch-service:9200"]
+    
+    # Security settings - disabled to match Elasticsearch
+    xpack.security.enabled: false
+    
+    # Localization
+    i18n.locale: "zh-CN"
+    
+    # Monitoring
+    monitoring.ui.container.elasticsearch.enabled: true
+    
+    # Encryption key for saved objects
+    xpack.encryptedSavedObjects.encryptionKey: "a7a6311933d3503b89bc2dbc36572c33a6c10925682e591bffcab6911c06786d"
+    
+    # Logging
+    logging.appenders:
+      console:
+        type: console
+        layout:
+          type: json
+    
+    logging.root:
+      appenders:
+        - console
+
+---
+# Kibana Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: kibana-service
+  namespace: rwp
+  labels:
+    app: kibana
+spec:
+  type: NodePort  # 使用 NodePort 供外部访问
+  ports:
+    - name: http
+      port: 5601
+      targetPort: 5601
+      nodePort: 30561  # 外部访问端口
+      protocol: TCP
+  selector:
+    app: kibana
+
+---
+# Kibana Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kibana
+  namespace: rwp
+  labels:
+    app: kibana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kibana
+  template:
+    metadata:
+      labels:
+        app: kibana
+    spec:
+      initContainers:
+        # 等待 Elasticsearch 就绪
+        - name: wait-for-elasticsearch
+          image: curlimages/curl:7.85.0
+          command: ['sh', '-c']
+          args:
+            - |
+              until curl -f http://elasticsearch-service:9200/_cluster/health; do
+                echo "Waiting for Elasticsearch to be ready..."
+                sleep 10
+              done
+              echo "Elasticsearch is ready!"
+      containers:
+        - name: kibana
+          image: docker.elastic.co/kibana/kibana:8.11.0
+          ports:
+            - containerPort: 5601
+              name: http
+          env:
+            - name: ELASTICSEARCH_HOSTS
+              value: "http://elasticsearch-service:9200"
+            - name: SERVER_NAME
+              value: "kibana"
+            - name: SERVER_HOST
+              value: "0.0.0.0"
+            - name: XPACK_SECURITY_ENABLED
+              value: "false"
+            - name: XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY
+              value: "a7a6311933d3503b89bc2dbc36572c33a6c10925682e591bffcab6911c06786d"
+            - name: I18N_LOCALE
+              value: "zh-CN"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          volumeMounts:
+            - name: kibana-config
+              mountPath: /usr/share/kibana/config/kibana.yml
+              subPath: kibana.yml
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /api/status
+              port: 5601
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+      volumes:
+        - name: kibana-config
+          configMap:
+            name: kibana-config
+            items:
+              - key: kibana.yml
+                path: kibana.yml
+      securityContext:
+        fsGroup: 1000
