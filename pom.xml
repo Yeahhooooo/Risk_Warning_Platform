@@ -34,6 +34,7 @@
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <hutool.version>5.8.22</hutool.version>
         <fastjson.version>2.0.43</fastjson.version>
+        <okhttp.version>4.12.0</okhttp.version>
     </properties>
 
     <modules>
@@ -143,6 +144,13 @@
                 <groupId>cn.hutool</groupId>
                 <artifactId>hutool-all</artifactId>
                 <version>${hutool.version}</version>
+            </dependency>
+
+            <!-- OkHttp for HTTP requests -->
+            <dependency>
+                <groupId>com.squareup.okhttp3</groupId>
+                <artifactId>okhttp</artifactId>
+                <version>${okhttp.version}</version>
             </dependency>
 
             <!-- JSON -->

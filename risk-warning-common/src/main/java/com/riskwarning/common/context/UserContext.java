@@ -1,6 +1,6 @@
 package com.riskwarning.common.context;
 
-import com.riskwarning.common.po.User;
+import com.riskwarning.common.po.user.User;
 
 public class UserContext {
 

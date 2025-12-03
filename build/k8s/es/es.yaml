@@ -37,37 +37,37 @@ data:
     path.logs: /usr/share/elasticsearch/logs
 
 ---
-# # Elasticsearch PersistentVolume (注释掉 - 没有集群权限)
-# apiVersion: v1
-# kind: PersistentVolume
-# metadata:
-#   name: elasticsearch-pv
-#   namespace: rwp
-#   labels:
-#     app: elasticsearch
-# spec:
-#   capacity:
-#     storage: 10Gi
-#   accessModes:
-#     - ReadWriteOnce
-#   hostPath:
-#     path: "/home/rwp/yaml/es/esData"
+# Elasticsearch PersistentVolume 
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: elasticsearch-pv
+  namespace: rwp
+  labels:
+    app: elasticsearch
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/home/rwp/yaml/es/data"
 
 ---
-# # Elasticsearch PersistentVolumeClaim (注释掉 - 没有 PVC 权限)
-# apiVersion: v1
-# kind: PersistentVolumeClaim
-# metadata:
-#   name: elasticsearch-pvc
-#   namespace: rwp
-#   labels:
-#     app: elasticsearch
-# spec:
-#   accessModes:
-#     - ReadWriteOnce
-#   resources:
-#     requests:
-#       storage: 10Gi
+# Elasticsearch PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-pvc
+  namespace: rwp
+  labels:
+    app: elasticsearch
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
 
 ---
 # Elasticsearch Service
@@ -162,9 +162,9 @@ spec:
               add:
                 - IPC_LOCK
       volumes:
-        # - name: elasticsearch-data  # 注释掉 - 没有持久化存储权限
-        #   persistentVolumeClaim:
-        #     claimName: elasticsearch-pvc
+        - name: elasticsearch-data
+          persistentVolumeClaim:
+            claimName: elasticsearch-pvc
         - name: elasticsearch-config
           configMap:
             name: elasticsearch-config

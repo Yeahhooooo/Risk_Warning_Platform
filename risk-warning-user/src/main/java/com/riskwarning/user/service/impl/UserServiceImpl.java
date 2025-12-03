@@ -1,7 +1,7 @@
 package com.riskwarning.user.service.impl;
 
 import com.riskwarning.common.dto.*;
-import com.riskwarning.common.po.User;
+import com.riskwarning.common.po.user.User;
 import com.riskwarning.common.utils.JwtUtils;
 import com.riskwarning.common.utils.PasswordUtils;
 import com.riskwarning.user.repository.UserRepository;

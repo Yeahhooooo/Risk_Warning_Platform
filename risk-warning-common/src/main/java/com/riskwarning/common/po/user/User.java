@@ -1,10 +1,9 @@
-package com.riskwarning.common.po;
+package com.riskwarning.common.po.user;
 
 import lombok.Data;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
-import java.util.Date;
 
 @Data
 @Entity

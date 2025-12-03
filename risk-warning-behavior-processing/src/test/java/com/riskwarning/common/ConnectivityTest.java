@@ -19,6 +19,7 @@ import org.springframework.test.context.junit4.SpringRunner;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 
@@ -41,6 +42,7 @@ public class ConnectivityTest {
     public void testDatabaseConnection() {
         try {
             // 尝试获取PostgreSQL连接以验证连接
+            new ArrayList<IndicatorResultDTO>().clear();
             Connection dbConnection = dataSource.getConnection();
             System.out.println("Connected to Database: " + dbConnection.getMetaData().getURL());
         } catch (Exception e) {

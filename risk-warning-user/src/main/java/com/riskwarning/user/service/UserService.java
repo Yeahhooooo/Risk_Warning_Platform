@@ -1,7 +1,7 @@
 package com.riskwarning.user.service;
 
 import com.riskwarning.common.dto.*;
-import com.riskwarning.common.po.User;
+import com.riskwarning.common.po.user.User;
 
 /**
  * 用户服务接口
