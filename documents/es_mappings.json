@@ -2,6 +2,7 @@
   "t_behavior": {
     "mappings": {
       "properties": {
+        "id": { "type": "keyword" },
         "project_id": { "type": "long" },
         "description": {
           "type": "text",
@@ -13,7 +14,7 @@
         "status": { "type": "keyword" },
         "quantitative_data": { "type": "double" },
         "behavior_date": { "type": "date" },
-        "description_vector": {
+        "vector": {
           "type": "dense_vector",
           "dims": 768
         },
@@ -24,6 +25,7 @@
   "t_indicator": {
     "mappings": {
       "properties": {
+        "id": { "type": "keyword" },
         "name": {
           "type": "text",
           "analyzer": "ik_max_word",
@@ -61,30 +63,6 @@
                 "calculation_method": { "type": "keyword" },
                 "out_of_range_score": { "type": "double" },
                 "max_score": { "type": "double" }
-              }
-            }
-          }
-        },
-        "default_calculation_rule": {
-          "type": "object",
-          "properties": {
-            "rule_type": { "type": "keyword" },
-            "binary_rule": {
-              "type": "object",
-              "properties": {
-                "condition": { "type": "text" },
-                "true_score": { "type": "double" },
-                "false_score": { "type": "double" }
-              }
-            },
-            "range_rule": {
-              "type": "object",
-              "properties": {
-                "min_value": { "type": "double" },
-                "max_value": { "type": "double" },
-                "calculation_method": { "type": "keyword" },
-                "out_of_min_score": { "type": "double" },
-                "out_of_max_score": { "type": "double" }
               }
             }
           }
@@ -149,7 +127,7 @@
             }
           }
         },
-        "name_vector": {
+        "vector": {
           "type": "dense_vector",
           "dims": 768
         },
@@ -160,6 +138,7 @@
   "t_regulation": {
     "mappings": {
       "properties": {
+        "id": { "type": "keyword" },
         "name": {
           "type": "text",
           "analyzer": "ik_max_word",
@@ -168,6 +147,7 @@
         "type": { "type": "keyword" },
         "dimension": { "type": "keyword" },
         "industry": { "type": "keyword" },
+        "tags": { "type": "keyword" },
         "region": { "type": "keyword" },
         "applicable_subject": { "type": "keyword" },
         "full_text": {
@@ -176,7 +156,7 @@
         },
         "direction": { "type": "keyword" },
         "quantitative_indicator": { "type": "double" },
-        "full_text_vector": {
+        "vector": {
           "type": "dense_vector",
           "dims": 768
         },
@@ -187,6 +167,7 @@
   "t_risk": {
     "mappings": {
       "properties": {
+        "id": { "type": "keyword" },
         "project_id": { "type": "long" },
         "assessment_id": { "type": "long" },
         "name": {
@@ -222,7 +203,7 @@
         "related_indicators": {
           "type": "nested",
           "properties": {
-            "indicator_es_id": { "type": "keyword" },
+            "indicator_id": { "type": "keyword" },
             "indicator_name": { "type": "text" },
             "score": { "type": "double" },
             "threshold": { "type": "double" },
@@ -232,7 +213,7 @@
         "related_regulations": {
           "type": "nested",
           "properties": {
-            "regulation_es_id": { "type": "keyword" },
+            "regulation_id": { "type": "keyword" },
             "regulation_name": { "type": "text" },
             "violation_type": { "type": "keyword" },
             "compliance_requirement": { "type": "text" }
