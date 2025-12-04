@@ -21,22 +21,16 @@
 
 ### 微服务架构
 
-系统采用12个微服务构成：
+系统采用6个微服务构成：
 
-| 服务名称 | 端口   | 职责 |
-|---------|------|------|
-| risk-warning-gateway | 8088 | API网关，统一入口 |
-| risk-warning-user | 8095 | 用户认证和权限管理 |
-| risk-warning-enterprise | 8086 | 企业信息管理 |
-| risk-warning-project | 8092 | 项目生命周期管理 |
-| risk-warning-data-collection | 8085 | 数据收集和文档解析 |
-| risk-warning-behavior-processing | 8084 | 行为信息标准化处理 |
-| risk-warning-knowledge | 8089 | 知识库管理(指标/法规) |
-| risk-warning-matching-calculation | 8090 | AI匹配和指标计算 |
-| risk-warning-risk-assessment | 8094 | 风险评估和预警 |
-| risk-warning-report | 8093 | 评估报告生成 |
-| risk-warning-event | 8087 | 事件管理和审计 |
-| risk-warning-notification | 8091 | 通知和消息推送 |
+| 服务名称                      | 端口   | 职责           |
+|---------------------------|------|--------------|
+| risk-warning-gateway      | 8088 | API网关，统一入口   |
+| risk-warning-org          | 8095 | 用户、企业、项目管理   |
+| risk-warning-processing   | 8084 | 信息处理，风险分析    |
+| risk-warning-knowledge    | 8089 | 知识库管理(指标/法规) |
+| risk-warning-report       | 8093 | 评估报告生成       |
+| risk-warning-notification | 8091 | 通知和消息推送      |
 
 ## 快速启动
 

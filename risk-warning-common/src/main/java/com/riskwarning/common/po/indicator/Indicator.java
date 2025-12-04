@@ -1,9 +1,8 @@
 package com.riskwarning.common.po.indicator;
 
-import lombok.Builder;
-import lombok.Data;
-import lombok.Getter;
+import lombok.*;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -12,7 +11,10 @@ import java.util.List;
 
 @Builder
 @Data
+@AllArgsConstructor
+@NoArgsConstructor
 public class Indicator {
+
     private String id; // es默认的id字段，不需要手动设置
     // Getter 和 Setter 方法
     @Getter
@@ -28,30 +30,8 @@ public class Indicator {
     private Double maxScore;
     private CalculationRule calculationRule;
     private RiskRule riskRule;
-
-    // 无参构造函数
-    public Indicator() {}
-
-    // 全参构造函数
-    public Indicator(String id, String name, String description, String type, Integer indicatorLevel,
-                     String parentIndicatorId, String dimension, List<String> industry, String region,
-                     List<String> tags, Double maxScore, CalculationRule calculationRule,
-                     RiskRule riskRule) {
-        this.id = id;
-        this.name = name;
-        this.description = description;
-        this.type = type;
-        this.indicatorLevel = indicatorLevel;
-        this.parentIndicatorId = parentIndicatorId;
-        this.dimension = dimension;
-        this.industry = industry;
-        this.region = region;
-        this.tags = tags;
-        this.maxScore = maxScore;
-        this.calculationRule = calculationRule;
-//        this.defaultCalculationRule = defaultCalculationRule;
-        this.riskRule = riskRule;
-    }
+    private LocalDateTime createAt;
+    private List<Double> vector;
 
 
     @Override
@@ -69,6 +49,7 @@ public class Indicator {
                 ", maxScore=" + maxScore +
                 ", calculationRule=" + calculationRule +
                 ", riskRule=" + riskRule +
+                ", createAt=" + createAt +
                 '}';
     }
 }

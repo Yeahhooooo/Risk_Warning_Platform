@@ -9,6 +9,7 @@ import lombok.Data;
  */
 @Builder
 @Data
+//@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class AdjustmentFactor {
     private Boolean enabled;
     private Integer requiredLowCount;

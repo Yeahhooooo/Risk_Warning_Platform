@@ -1,6 +1,0 @@
-server:
-  port: 8090
-# Milvus向量数据库配置
-#milvus:
-#  host: localhost
-#  port: 19530

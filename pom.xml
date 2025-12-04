@@ -43,16 +43,10 @@
         <!-- 网关模块 -->
         <module>risk-warning-gateway</module>
         <!-- 业务服务模块 -->
-        <module>risk-warning-user</module>
-        <module>risk-warning-enterprise</module>
-        <module>risk-warning-project</module>
-        <module>risk-warning-data-collection</module>
-        <module>risk-warning-behavior-processing</module>
+        <module>risk-warning-org</module>
+        <module>risk-warning-processing</module>
         <module>risk-warning-knowledge</module>
-        <module>risk-warning-matching-calculation</module>
-        <module>risk-warning-risk-assessment</module>
         <module>risk-warning-report</module>
-        <module>risk-warning-event</module>
         <module>risk-warning-notification</module>
     </modules>
 

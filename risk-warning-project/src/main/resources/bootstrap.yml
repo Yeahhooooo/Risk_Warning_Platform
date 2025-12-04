@@ -1,5 +1,0 @@
-spring:
-  profiles:
-    active: common
-  application:
-    name: risk-warning-project
