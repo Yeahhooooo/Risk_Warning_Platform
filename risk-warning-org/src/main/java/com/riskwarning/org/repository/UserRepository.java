@@ -1,4 +1,4 @@
-package com.riskwarning.user.repository;
+package com.riskwarning.org.repository;
 
 import com.riskwarning.common.po.user.User;
 import org.springframework.data.jpa.repository.JpaRepository;

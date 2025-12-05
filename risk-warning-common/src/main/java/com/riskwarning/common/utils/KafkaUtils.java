@@ -44,11 +44,11 @@ class TestConsumer {
         receiveMessage = null;
     }
 
-    @KafkaListener(topics = "test", groupId = "test-group")
-    public void listen(String message) {
-        this.receiveMessage = message;
-        latch.countDown();
-    }
+//    @KafkaListener(topics = "test", groupId = "test-group")
+//    public void listen(String message) {
+//        this.receiveMessage = message;
+//        latch.countDown();
+//    }
 
     public String awaitMessage() throws InterruptedException {
         latch.await();

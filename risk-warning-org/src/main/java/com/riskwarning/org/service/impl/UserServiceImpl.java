@@ -1,11 +1,11 @@
-package com.riskwarning.user.service.impl;
+package com.riskwarning.org.service.impl;
 
 import com.riskwarning.common.dto.*;
 import com.riskwarning.common.po.user.User;
 import com.riskwarning.common.utils.JwtUtils;
 import com.riskwarning.common.utils.PasswordUtils;
-import com.riskwarning.user.repository.UserRepository;
-import com.riskwarning.user.service.UserService;
+import com.riskwarning.org.repository.UserRepository;
+import com.riskwarning.org.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;

@@ -2,5 +2,5 @@ spring:
   profiles:
     active: common
   application:
-    name: risk-warning-behavior-processing
+    name: risk-warning-processing
 

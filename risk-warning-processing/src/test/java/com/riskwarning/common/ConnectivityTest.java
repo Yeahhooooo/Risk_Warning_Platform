@@ -1,14 +1,11 @@
 package com.riskwarning.common;
 
 
-import cn.hutool.core.bean.BeanUtil;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.InfoResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
-import com.riskwarning.behavior.BehaviorProcessingApplication;
-import com.riskwarning.common.config.ElasticSearchConfig;
+import com.riskwarning.processing.ProcessingApplication;
 import com.riskwarning.common.dto.IndicatorResultDTO;
-import com.riskwarning.common.enums.DataSourceTypeEnum;
 import com.riskwarning.common.enums.KafkaTopic;
 import com.riskwarning.common.message.*;
 import com.riskwarning.common.po.indicator.Indicator;
@@ -17,18 +14,15 @@ import com.riskwarning.common.utils.RedisUtil;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.junit4.SpringRunner;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
 
-@SpringBootTest(classes = BehaviorProcessingApplication.class)
+@SpringBootTest(classes = ProcessingApplication.class)
 public class ConnectivityTest {
 
     @Autowired

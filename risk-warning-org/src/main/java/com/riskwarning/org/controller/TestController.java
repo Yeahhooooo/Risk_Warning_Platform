@@ -1,4 +1,4 @@
-package com.riskwarning.user.controller;
+package com.riskwarning.org.controller;
 
 import com.riskwarning.common.result.Result;
 import org.springframework.web.bind.annotation.RequestMapping;

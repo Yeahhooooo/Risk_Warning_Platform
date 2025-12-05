@@ -1,4 +1,4 @@
-package com.riskwarning.user.service;
+package com.riskwarning.org.service;
 
 import com.riskwarning.common.dto.*;
 import com.riskwarning.common.po.user.User;

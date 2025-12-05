@@ -3,45 +3,19 @@ spring:
     gateway:
       routes:
         # 用户认证服务
-        - id: user-service
-          uri: lb://risk-warning-user
+        - id: org-service
+          uri: lb://risk-warning-org
           predicates:
-            - Path=/api/user/**
+            - Path=/api/org/**
           filters:
             - StripPrefix=2
-
-        # 企业服务
-        - id: enterprise-service
-          uri: lb://risk-warning-enterprise
-          predicates:
-            - Path=/api/enterprise/**
-          filters:
-            - StripPrefix=2
-
-        # 项目服务
-        - id: project-service
-          uri: lb://risk-warning-project
-          predicates:
-            - Path=/api/project/**
-          filters:
-            - StripPrefix=2
-
-        # 数据收集服务
-        - id: data-collection-service
-          uri: lb://risk-warning-data-collection
-          predicates:
-            - Path=/api/data-collection/**
-          filters:
-            - StripPrefix=2
-
         # 行为处理服务
-        - id: behavior-processing-service
-          uri: lb://risk-warning-behavior-processing
+        - id: processing-service
+          uri: lb://risk-warning-processing
           predicates:
-            - Path=/api/behavior/**
+            - Path=/api/processing/**
           filters:
             - StripPrefix=2
-
         # 知识库服务
         - id: knowledge-service
           uri: lb://risk-warning-knowledge
@@ -49,35 +23,11 @@ spring:
             - Path=/api/knowledge/**
           filters:
             - StripPrefix=2
-
-        # 匹配计算服务
-        - id: matching-calculation-service
-          uri: lb://risk-warning-matching-calculation
-          predicates:
-            - Path=/api/matching/**,/api/calculation/**
-          filters:
-            - StripPrefix=2
-
-        # 风险评估服务
-        - id: risk-assessment-service
-          uri: lb://risk-warning-risk-assessment
-          predicates:
-            - Path=/api/risk/**
-          filters:
-            - StripPrefix=2
-
         # 报告服务
         - id: report-service
           uri: lb://risk-warning-report
           predicates:
             - Path=/api/report/**
-          filters:
-            - StripPrefix=2
-        # 事件服务
-        - id: event-service
-          uri: lb://risk-warning-event
-          predicates:
-            - Path=/api/event/**
           filters:
             - StripPrefix=2
         # 通知服务

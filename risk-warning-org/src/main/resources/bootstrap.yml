@@ -2,5 +2,5 @@ spring:
   profiles:
     active: common
   application:
-    name: risk-warning-user
+    name: risk-warning-org
 

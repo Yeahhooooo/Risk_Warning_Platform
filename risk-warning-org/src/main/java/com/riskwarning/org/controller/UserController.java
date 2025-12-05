@@ -1,11 +1,10 @@
-package com.riskwarning.user.controller;
+package com.riskwarning.org.controller;
 
 import com.riskwarning.common.annotation.AuthRequired;
 import com.riskwarning.common.context.UserContext;
 import com.riskwarning.common.dto.*;
 import com.riskwarning.common.result.Result;
-import com.riskwarning.common.utils.JwtUtils;
-import com.riskwarning.user.service.UserService;
+import com.riskwarning.org.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -18,7 +17,7 @@ import javax.validation.Valid;
  */
 @Slf4j
 @RestController
-@RequestMapping("/")
+@RequestMapping("/user")
 @RequiredArgsConstructor
 public class UserController {
 
