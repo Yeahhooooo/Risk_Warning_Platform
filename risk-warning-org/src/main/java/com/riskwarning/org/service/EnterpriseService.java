@@ -1,6 +1,6 @@
 package com.riskwarning.org.service;
 
-import com.riskwarning.common.dto.EnterpriseUserResponse;
+import com.riskwarning.common.dto.enterprise.EnterpriseUserResponse;
 import com.riskwarning.common.po.enterprise.Enterprise;
 
 import java.util.List;

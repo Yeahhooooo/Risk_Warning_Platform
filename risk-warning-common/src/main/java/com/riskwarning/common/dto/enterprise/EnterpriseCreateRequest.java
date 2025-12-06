@@ -1,4 +1,4 @@
-package com.riskwarning.common.dto;
+package com.riskwarning.common.dto.enterprise;
 
 
 import java.math.BigDecimal;

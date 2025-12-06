@@ -1,7 +1,16 @@
+// java
 package com.riskwarning.common.po.project;
 
-import com.riskwarning.common.po.enterprise.Enterprise;
+import com.riskwarning.common.enums.project.IndustryEnum;
+import com.riskwarning.common.enums.project.ProjectOrientedUserEnum;
+import com.riskwarning.common.enums.project.ProjectStatus;
+import com.riskwarning.common.enums.RegionEnum;
+import com.riskwarning.common.enums.project.ProjectType;
+import com.riskwarning.common.utils.PostgreSQLEnumType;
 import lombok.*;
+import org.hibernate.annotations.Type;
+import org.hibernate.annotations.TypeDef;
+
 import javax.persistence.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -12,24 +21,28 @@ import java.time.LocalDateTime;
 @Builder
 @Entity
 @Table(name = "t_project")
+@TypeDef(name = "pgsql_enum", typeClass = PostgreSQLEnumType.class)
 public class Project {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "enterprise_id", nullable = false)
-    private Enterprise enterprise;
+    @Column(name = "enterprise_id", nullable = false)
+    private Long enterpriseId;
 
     @Column(nullable = false)
     private String name;
 
-    @Column(name = "type")
-    private String type; // 对应 DB 的 project_type
+    @Type(type = "pgsql_enum")
+    @Enumerated(EnumType.STRING)
+    @Column(name = "type", columnDefinition = "project_type")
+    private ProjectType type;
 
-    @Column(nullable = false)
-    private String status; // 对应 DB 的 project_status（如 '进行中'）
+    @Type(type = "pgsql_enum")
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", columnDefinition = "project_status", nullable = false)
+    private ProjectStatus status;
 
     @Column(columnDefinition = "TEXT")
     private String description;
@@ -43,14 +56,20 @@ public class Project {
     @Column(name = "actual_completion_date")
     private LocalDate actualCompletionDate;
 
-    @Column
-    private String industry; // 对应 industry_enum
+    @Type(type = "pgsql_enum")
+    @Enumerated(EnumType.STRING)
+    @Column(name = "industry", columnDefinition = "industry_enum")
+    private IndustryEnum industry;
 
-    @Column
-    private String region; // 对应 region_enum
+    @Type(type = "pgsql_enum")
+    @Enumerated(EnumType.STRING)
+    @Column(name = "region", columnDefinition = "region_enum")
+    private RegionEnum region;
 
-    @Column(name = "oriented_user")
-    private String orientedUser; // 对应 project_oriented_user_enum
+    @Type(type = "pgsql_enum")
+    @Enumerated(EnumType.STRING)
+    @Column(name = "oriented_user", columnDefinition = "project_oriented_user_enum")
+    private ProjectOrientedUserEnum orientedUser;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

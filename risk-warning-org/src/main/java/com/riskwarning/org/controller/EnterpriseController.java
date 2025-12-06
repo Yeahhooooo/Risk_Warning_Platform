@@ -1,13 +1,12 @@
 package com.riskwarning.org.controller;
 
 import com.riskwarning.common.annotation.AuthRequired;
-import com.riskwarning.common.dto.EnterpriseUserResponse;
+import com.riskwarning.common.dto.enterprise.EnterpriseUserResponse;
 import com.riskwarning.common.po.enterprise.Enterprise;
 import com.riskwarning.common.dto.AddMemberRequest;
-import com.riskwarning.common.dto.EnterpriseCreateRequest;
+import com.riskwarning.common.dto.enterprise.EnterpriseCreateRequest;
 import com.riskwarning.common.result.Result;
 import com.riskwarning.org.service.EnterpriseService;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -30,6 +29,7 @@ public class EnterpriseController {
         e.setName(req.getName());
         e.setCreditCode(req.getCreditCode());
         e.setType(req.getType());
+
         e.setIndustry(req.getIndustry());
         e.setBusinessScope(req.getBusinessScope());
         e.setRegisteredCapital(req.getRegisteredCapital());

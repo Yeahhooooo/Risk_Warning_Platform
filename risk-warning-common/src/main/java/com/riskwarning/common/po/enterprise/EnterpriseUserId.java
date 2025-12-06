@@ -1,10 +1,15 @@
 package com.riskwarning.common.po.enterprise;
 
+import lombok.Getter;
+import lombok.Setter;
+
 import java.io.Serializable;
 import java.util.Objects;
 import javax.persistence.Column;
 import javax.persistence.Embeddable;
 
+@Setter
+@Getter
 @Embeddable
 public class EnterpriseUserId implements Serializable {
 
@@ -20,22 +25,6 @@ public class EnterpriseUserId implements Serializable {
 
     public EnterpriseUserId(Long enterpriseId, Long userId) {
         this.enterpriseId = enterpriseId;
-        this.userId = userId;
-    }
-
-    public Long getEnterpriseId() {
-        return enterpriseId;
-    }
-
-    public void setEnterpriseId(Long enterpriseId) {
-        this.enterpriseId = enterpriseId;
-    }
-
-    public Long getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Long userId) {
         this.userId = userId;
     }
 

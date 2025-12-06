@@ -2,7 +2,7 @@ package com.riskwarning.org.service.impl;
 
 import com.riskwarning.common.context.UserContext;
 import com.riskwarning.common.dto.UserResponse;
-import com.riskwarning.common.dto.EnterpriseUserResponse;
+import com.riskwarning.common.dto.enterprise.EnterpriseUserResponse;
 import com.riskwarning.common.enums.EnterpriseRole;
 import com.riskwarning.common.po.enterprise.Enterprise;
 import com.riskwarning.common.po.enterprise.EnterpriseUser;
@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service

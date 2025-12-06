@@ -1,8 +1,12 @@
-// java
 package com.riskwarning.common.po.project;
 
+import com.riskwarning.common.enums.project.ProjectRole;
 import com.riskwarning.common.po.user.User;
+import com.riskwarning.common.utils.PostgreSQLEnumType;
 import lombok.*;
+import org.hibernate.annotations.Type;
+import org.hibernate.annotations.TypeDef;
+
 import javax.persistence.*;
 
 @Data
@@ -11,25 +15,30 @@ import javax.persistence.*;
 @Builder
 @Entity
 @Table(name = "t_project_member")
-@IdClass(ProjectMemberId.class)
+@TypeDef(name = "pgsql_enum", typeClass = PostgreSQLEnumType.class)
 public class ProjectMember {
 
-    @Id
-    @Column(name = "project_id")
-    private Long projectId;
+    @EmbeddedId
+    private ProjectMemberId id;
 
-    @Id
-    @Column(name = "user_id")
-    private Long userId;
-
+    @MapsId("projectId")
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "project_id", insertable = false, updatable = false)
+    @JoinColumn(name = "project_id")
+    @Setter
+    @Getter
     private Project project;
 
+    @MapsId("userId")
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", insertable = false, updatable = false)
+    @JoinColumn(name = "user_id")
+    @Setter
+    @Getter
     private User user;
 
-    @Column(name = "role", nullable = false)
-    private String role; // 对应 DB 中的 project_role（如 'project_admin','editor','viewer'）
+    @Type(type = "pgsql_enum")
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role", columnDefinition = "project_role", nullable = false)
+    @Setter
+    @Getter
+    private ProjectRole role;
 }
