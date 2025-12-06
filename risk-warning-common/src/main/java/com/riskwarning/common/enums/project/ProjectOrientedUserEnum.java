@@ -1,5 +1,8 @@
 package com.riskwarning.common.enums.project;
 
+import lombok.Getter;
+
+@Getter
 public enum ProjectOrientedUserEnum {
     GOVERNMENT("GOVERNMENT", "政府机构与官员"),
     SOE("SOE", "国有企业"),
@@ -10,20 +13,12 @@ public enum ProjectOrientedUserEnum {
     PUBLIC("PUBLIC", "公众");
 
     private final String code;
+    // 返回将写入数据库的值（中文）
     private final String dbValue;
 
     ProjectOrientedUserEnum(String code, String dbValue) {
         this.code = code;
         this.dbValue = dbValue;
-    }
-
-    public String getCode() {
-        return code;
-    }
-
-    // 返回将写入数据库的值（中文）
-    public String getDbValue() {
-        return dbValue;
     }
 
     public static ProjectOrientedUserEnum fromCode(String code) {
@@ -32,16 +27,6 @@ public enum ProjectOrientedUserEnum {
             if (p.code.equalsIgnoreCase(code) || p.name().equalsIgnoreCase(code)) return p;
         }
         throw new IllegalArgumentException("Unknown ProjectOrientedUserEnum code: " + code);
-    }
-
-    public static ProjectOrientedUserEnum fromDbValue(String dbValue) {
-        if (dbValue == null) return null;
-        for (ProjectOrientedUserEnum p : values()) {
-            if (p.dbValue.equals(dbValue) || p.name().equalsIgnoreCase(dbValue) || p.code.equalsIgnoreCase(dbValue)) {
-                return p;
-            }
-        }
-        throw new IllegalArgumentException("Unknown ProjectOrientedUserEnum db value: " + dbValue);
     }
 
     @Override

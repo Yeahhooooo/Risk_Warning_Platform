@@ -33,8 +33,6 @@ public enum ProjectRole {
         throw new IllegalArgumentException("Unknown ProjectRole: " + code);
     }
 
-
-
     @Override
     public String toString() {
         return code;

@@ -11,9 +11,12 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+
+/**
+ * 企业控制器
+ */
 @RestController
 @RequestMapping("/enterprise")
-
 public class EnterpriseController {
 
     private final EnterpriseService enterpriseService;
@@ -22,6 +25,12 @@ public class EnterpriseController {
         this.enterpriseService = enterpriseService;
     }
 
+    /**
+     * 创建企业
+     *
+     * @param req 企业创建请求
+     * @return 创建的企业
+     */
     @PostMapping
     @AuthRequired
     public Result<Enterprise> createEnterprise(@RequestBody EnterpriseCreateRequest req) {
@@ -42,13 +51,23 @@ public class EnterpriseController {
         return Result.success(saved);
     }
 
-    @PostMapping("/{enterpriseId}/members")
 
+    /**
+     * 将用户添加到企业
+     * @param enterpriseId
+     * @param req
+     * @return
+     */
+    @PostMapping("/{enterpriseId}/members")
     public Result<Void> addMember(@PathVariable Long enterpriseId, @RequestBody AddMemberRequest req) {
         enterpriseService.addUserToEnterprise(enterpriseId, req.getUserId(), req.getRole());
         return Result.success();
     }
 
+    /**
+     * 获取所有企业
+     * @return 企业列表
+     */
     @GetMapping
     public Result<List<Enterprise>> getAllEnterprises() {
         // This method would call a service method to retrieve all enterprises
@@ -56,6 +75,11 @@ public class EnterpriseController {
         return Result.success(enterpriseService.getAllEnterprises());
     }
 
+    /**
+     * 根据企业ID获取用户列表
+     * @param enterpriseId 企业ID
+     * @return 用户列表
+     */
     @GetMapping("/{enterpriseId}/members")
     public Result<List<EnterpriseUserResponse>> getEnterpriseMembers(@PathVariable Long enterpriseId) {
         // This method would call a service method to retrieve members of the enterprise

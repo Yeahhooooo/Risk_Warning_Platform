@@ -17,6 +17,10 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+
+/**
+ * 项目控制器
+ */
 @RestController
 @RequestMapping("/project")
 public class ProjectController {
@@ -27,6 +31,12 @@ public class ProjectController {
         this.projectService = projectService;
     }
 
+    /**
+     * 创建项目
+     *
+     * @param req 项目创建请求
+     * @return 创建的项目
+     */
     @PostMapping
     @AuthRequired
     public Result<Project> createProject(@RequestBody ProjectCreateRequest req) {
@@ -46,17 +56,35 @@ public class ProjectController {
         return Result.success(saved);
     }
 
+    /**
+     * 将成员添加到项目
+     *
+     * @param projectId 项目ID
+     * @param req 添加成员请求
+     * @return 操作结果
+     */
     @PostMapping("/{projectId}/members")
     public Result<Void> addMember(@PathVariable Long projectId, @RequestBody com.riskwarning.common.dto.AddMemberRequest req) {
         projectService.addUserToProject(projectId, req.getUserId(), req.getRole());
         return Result.success();
     }
 
+    /**
+     * 获取所有项目
+     *
+     * @return 项目列表
+     */
     @GetMapping
     public Result<List<Project>> getAllProjects() {
         return Result.success(projectService.getAllProjects());
     }
 
+    /**
+     * 根据项目ID获取项目成员列表
+     *
+     * @param projectId 项目ID
+     * @return 项目成员列表
+     */
     @GetMapping("/{projectId}/members")
     public Result<List<ProjectMemberResponse>> getProjectMembers(@PathVariable Long projectId) {
         return Result.success(projectService.getProjectMembers(projectId));

@@ -1,7 +1,13 @@
 package com.riskwarning.common.dto.enterprise;
 
 import com.riskwarning.common.dto.UserResponse;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.Setter;
 
+
+@Setter
+@Getter
 public class EnterpriseUserResponse {
     private UserResponse user;
     private String role;
@@ -13,19 +19,4 @@ public class EnterpriseUserResponse {
         this.role = role;
     }
 
-    public UserResponse getUser() {
-        return user;
-    }
-
-    public void setUser(UserResponse user) {
-        this.user = user;
-    }
-
-    public String getRole() {
-        return role;
-    }
-
-    public void setRole(String role) {
-        this.role = role;
-    }
 }
