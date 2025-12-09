@@ -1,2 +1,25 @@
 server:
   port: 8089
+
+# Milvus向量数据库配置
+milvus:
+  host: localhost
+  port: 19530
+  database: default
+  timeout: 30000
+
+# 向量化配置
+vectorization:
+  dimension: 768  # BERT向量维度
+  batch-size: 32  # 批量处理大小
+  max-sequence-length: 512  # 最大序列长度
+  mode: api  # 使用API方式（本地Python服务）
+  similarity-threshold: 0.3  # 语义搜索相似度阈值（0-1），默认0.3
+  
+  api:
+    local-api-url: http://localhost:8000/encode  # 本地Python服务地址
+
+# Elasticsearch配置
+spring:
+  elasticsearch:
+    uris: http://172.29.7.168:30920
