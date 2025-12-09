@@ -23,6 +23,7 @@ import javax.annotation.Resource;
 @Slf4j
 public class RedisUtil {
 
+
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
 
@@ -737,6 +738,25 @@ public class RedisUtil {
         } catch (Exception e) {
             log.error(key, e);
             return 0;
+        }
+    }
+
+
+    public Object rightPop(String key) {
+        try {
+            return redisTemplate.opsForList().rightPop(key);
+        } catch (Exception e) {
+            log.error(key, e);
+            return null;
+        }
+    }
+
+    public Object rightPopWithTimeout(String key, long timeout, TimeUnit unit) {
+        try {
+            return redisTemplate.opsForList().rightPop(key, timeout, unit);
+        } catch (Exception e) {
+            log.error(key, e);
+            return null;
         }
     }
 

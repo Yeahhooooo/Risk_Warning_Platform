@@ -2,6 +2,7 @@ package com.riskwarning.common.aspect;
 
 
 import com.riskwarning.common.context.UserContext;
+import com.riskwarning.common.po.user.User;
 import com.riskwarning.common.utils.JwtUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -43,6 +44,10 @@ public class AuthAspect {
         log.info("AuthAspect: 通过 user_id={} 进行权限验证", userId);
 
         // TODO: 查询用户信息，放入UserContext
+        User user = new User();
+        user.setId(userId);
+
+        UserContext.setUser(user);
 
         return joinPoint.proceed();
     }
