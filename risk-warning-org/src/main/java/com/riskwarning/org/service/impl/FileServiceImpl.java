@@ -33,7 +33,6 @@ public class FileServiceImpl implements FileService {
     @Override
     public String initUpload(Long projectId, String fileHash, Long fileSize, Integer totalChunks, String fileType) {
         String redisFileKey = String.format(RedisKey.REDIS_KEY_FILE, projectId);
-        // todo: 并发冲突
         // todo: 检查该项目是否已经上传过文件进行解析
         if(redisUtil.sHasKey(redisFileKey, fileHash)){
             throw new BusinessException("文件已存在，无法重复上传");
@@ -61,44 +60,37 @@ public class FileServiceImpl implements FileService {
                 .userId(UserContext.getUser().getId())
                 .filePath(Constants.getTempFileDirPath(projectId, uploadId))
                 .fileHash(fileHash)
-                .fileSize(0L)
-                .chunkIndexSet(new HashSet<>())
                 .totalChunks(totalChunks)
                 .fileSuffix(fileType)
                 .build();
 
-        redisUtil.sSetAndTime(redisFileKey, RedisKey.REDIS_KEY_FILE_EXPIRE_TIME_SECONDS, fileHash);
-        redisUtil.hset(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_CHUNK, projectId), uploadId, uploadFileDto, RedisKey.REDIS_KEY_UPLOAD_CHUNK_EXPIRE_TIME_SECONDS);
+        long putHashRes = redisUtil.sSetAndTime(redisFileKey, RedisKey.REDIS_KEY_FILE_EXPIRE_TIME_SECONDS, fileHash);
+        if(putHashRes == 0){
+            throw new BusinessException("初始化上传失败，可能是文件已存在，请重试");
+        }
+        redisUtil.hset(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, projectId), uploadId, uploadFileDto, RedisKey.REDIS_KEY_UPLOAD_INFO_EXPIRE_TIME_SECONDS);
         return uploadId;
     }
 
     @Override
     public void uploadChunk(Long projectId, String uploadId, Integer chunkIndex, MultipartFile file) {
-        UploadFileDto uploadFileDto = (UploadFileDto) redisUtil.hget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_CHUNK, projectId), uploadId);
+        UploadFileDto uploadFileDto = (UploadFileDto) redisUtil.hget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, projectId), uploadId);
         if(uploadFileDto == null){
             throw new BusinessException("上传任务不存在或已过期，请重新初始化上传");
         }
         if(chunkIndex >= uploadFileDto.getTotalChunks()){
             throw new BusinessException("分片索引超过了预先设定分片数目, 请检查后重新上传");
         }
-        if(uploadFileDto.getChunkIndexSet() == null){
-            uploadFileDto.setChunkIndexSet(new HashSet<>());
-        }
-        if(uploadFileDto.getChunkIndexSet().contains(chunkIndex)){
+        long addChunkRes = redisUtil.sSetAndTime(
+                String.format(RedisKey.REDIS_KEY_UPLOAD_CHUNKS, uploadId),
+                RedisKey.REDIS_KEY_UPLOAD_CHUNKS_EXPIRE_TIME_SECONDS,
+                chunkIndex
+        );
+        if(addChunkRes == 0){
             throw new BusinessException("该分片已上传，无需重复上传");
         }
-        try {
-            uploadFileDto.getChunkIndexSet().add(chunkIndex);
-            uploadFileDto.setFileSize(uploadFileDto.getFileSize() + file.getSize());
-            if(uploadFileDto.getFileSize() > Constants.FILE_SIZE_LIMIT){
-                throw new BusinessException("文件大小超出限制，无法上传");
-            }
-            String targetFilePath = uploadFileDto.getFilePath() + File.separator + chunkIndex;
-            FileUtils.transferFile(file, targetFilePath);
-            redisUtil.hset(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_CHUNK, projectId), uploadId, uploadFileDto, RedisKey.REDIS_KEY_UPLOAD_CHUNK_EXPIRE_TIME_SECONDS);
-        } catch (Exception e) {
-            throw new BusinessException("分片上传失败，请重试");
-        }
+        String targetFilePath = uploadFileDto.getFilePath() + File.separator + chunkIndex;
+        FileUtils.transferFile(file, targetFilePath);
     }
 
     @Override
@@ -106,12 +98,12 @@ public class FileServiceImpl implements FileService {
         try {
             // 删除Redis缓存
             String redisFileKey = String.format(RedisKey.REDIS_KEY_FILE, projectId);
-            UploadFileDto uploadFileDto = (UploadFileDto) redisUtil.hget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_CHUNK, projectId), uploadId);
+            UploadFileDto uploadFileDto = (UploadFileDto) redisUtil.hget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, projectId), uploadId);
             if(!redisUtil.sHasKey(redisFileKey, uploadId) || uploadFileDto == null){
                 throw new BusinessException("上传任务不存在或已过期");
             }
             redisUtil.setRemove(redisFileKey, uploadFileDto.getFileHash());
-            redisUtil.hdel(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_CHUNK, projectId), uploadId);
+            redisUtil.hdel(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, projectId), uploadId);
         } finally {
             FileUtils.delDirectory(Constants.getTempFileDirPath(projectId, uploadId));
         }
@@ -120,13 +112,14 @@ public class FileServiceImpl implements FileService {
     @Override
     public void confirmUpload(Long projectId) {
         // 检查上传任务是否存在
-        Map<Object, Object> uploadFileMap = redisUtil.hmget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_CHUNK, projectId));
+        Map<Object, Object> uploadFileMap = redisUtil.hmget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, projectId));
         if(uploadFileMap == null || uploadFileMap.isEmpty()){
             throw new BusinessException("上传任务不存在或已过期");
         }
         for(Object value : uploadFileMap.values()) {
             UploadFileDto uploadFileDto = (UploadFileDto) value;
-            if(uploadFileDto.getChunkIndexSet().size() != uploadFileDto.getTotalChunks()){
+            Set<Object> chunksSet = redisUtil.sGet(String.format(RedisKey.REDIS_KEY_UPLOAD_CHUNKS, uploadFileDto.getUploadId()));
+            if(chunksSet.size() != uploadFileDto.getTotalChunks()){
                 throw new BusinessException("文件分片上传未完成，无法确认上传");
             }
         }
@@ -140,6 +133,6 @@ public class FileServiceImpl implements FileService {
         fileRepository.saveAll(projectFiles);
         // 成功后删除缓存
         redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE, projectId));
-        redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_CHUNK, projectId));
+        redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, projectId));
     }
 }

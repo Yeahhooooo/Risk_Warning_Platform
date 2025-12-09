@@ -26,5 +26,6 @@ public class ProjectFile {
 
     private String filePath;
 
+    @Column(name = "create_at", insertable = false, updatable = false)
     private LocalDateTime createAt;
 }

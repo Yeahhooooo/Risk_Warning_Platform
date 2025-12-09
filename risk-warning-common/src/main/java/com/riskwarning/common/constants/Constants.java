@@ -25,7 +25,7 @@ public class Constants {
         return new File("").getAbsolutePath() + File.separator + Constants.FILE_TEMP_DIR + File.separator + projectId + File.separator + uploadId;
     }
 
-    public static String getPersistFileDirPath(Long projectId, String uploadId) {
-        return new File("").getAbsolutePath() + File.separator +  Constants.FILE_PERSIST_DIR + projectId + File.separator + uploadId;
+    public static String getPersistFileDirPath(Long projectId) {
+        return new File("").getAbsolutePath() + File.separator +  Constants.FILE_PERSIST_DIR + File.separator + projectId;
     }
 }

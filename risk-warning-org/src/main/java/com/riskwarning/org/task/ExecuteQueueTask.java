@@ -49,12 +49,12 @@ public class ExecuteQueueTask {
                 }
                 executorService.execute(() -> {
                     try {
-                        Map<Object, Object> uploadFileMap = redisUtil.hmget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_CHUNK, uploadConfirmDto.getProjectId()));
+                        Map<Object, Object> uploadFileMap = redisUtil.hmget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, uploadConfirmDto.getProjectId()));
                         List<ProjectFile> projectFiles = new ArrayList<>();
                         for(Object value : uploadFileMap.values()) {
                             UploadFileDto uploadFileDto = (UploadFileDto) value;
                             // todo: 文件需要保存到远程存储，这里只是本地合并，后续需要改造
-                            String targetFilePath = Constants.getPersistFileDirPath(uploadFileDto.getProjectId(), uploadFileDto.getUploadId())
+                            String targetFilePath = Constants.getPersistFileDirPath(uploadFileDto.getProjectId())
                                     + StringUtils.generateFileName(uploadFileDto.getProjectId(), uploadFileDto.getUploadId()) + "." + uploadFileDto.getFileSuffix();
                             FileUtils.union(
                                     uploadFileDto.getFilePath(),
@@ -77,6 +77,7 @@ public class ExecuteQueueTask {
                         if(uploadConfirmDto != null && uploadConfirmDto.getRetryCount() >= Constants.UPLOAD_CONFIRM_RETRY_LIMIT) {
                             throw new BusinessException("项目" + uploadConfirmDto.getProjectId() + "文件确认失败，重试次数已达上限");
                         }
+                        FileUtils.delDirectory(Constants.getPersistFileDirPath(uploadConfirmDto.getProjectId()));
                     }
                 });
             }
