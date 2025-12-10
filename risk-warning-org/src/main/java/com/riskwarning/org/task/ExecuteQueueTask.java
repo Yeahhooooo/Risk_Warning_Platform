@@ -9,6 +9,7 @@ import com.riskwarning.common.utils.RedisUtil;
 import com.riskwarning.common.utils.StringUtils;
 import com.riskwarning.org.entity.dto.UploadConfirmDto;
 import com.riskwarning.org.entity.dto.UploadFileDto;
+import com.riskwarning.org.repository.FileRepository;
 import com.riskwarning.org.service.FileService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,7 +33,7 @@ public class ExecuteQueueTask {
     private RedisUtil redisUtil;
 
     @Autowired
-    private FileService fileService;
+    private FileRepository fileRepository;
 
     @PostConstruct
     public void consumeTransferQueue() {
@@ -50,7 +51,10 @@ public class ExecuteQueueTask {
                 executorService.execute(() -> {
                     try {
                         Map<Object, Object> uploadFileMap = redisUtil.hmget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, uploadConfirmDto.getProjectId()));
-                        List<ProjectFile> projectFiles = new ArrayList<>();
+                        ProjectFile projectFile = ProjectFile.builder()
+                                .projectId(uploadConfirmDto.getProjectId())
+                                .filePaths(new ArrayList<>())
+                                .build();
                         for(Object value : uploadFileMap.values()) {
                             UploadFileDto uploadFileDto = (UploadFileDto) value;
                             // todo: 文件需要保存到远程存储，这里只是本地合并，后续需要改造
@@ -62,16 +66,13 @@ public class ExecuteQueueTask {
                                     true
                             );
 
-                            projectFiles.add(
-                                    ProjectFile.builder()
-                                            .projectId(uploadFileDto.getProjectId())
-                                            .userId(uploadFileDto.getUserId())
-                                            .filePath(targetFilePath)
-                                            .build()
-                            );
+                            projectFile.setUserId(uploadFileDto.getUserId());
+                            projectFile.getFilePaths().add(targetFilePath);
                         }
-                        // 入库方法使用代理类，否则事务不生效
-                        fileService.saveProjectFiles(uploadConfirmDto.getProjectId(), projectFiles);
+                        fileRepository.save(projectFile);
+                        // 成功后删除缓存
+                        redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE, uploadConfirmDto.getProjectId()));
+                        redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, uploadConfirmDto.getProjectId()));
                     } catch (Exception e) {
                         log.error("Error processing file upload confirm queue", e);
                         if(uploadConfirmDto != null && uploadConfirmDto.getRetryCount() >= Constants.UPLOAD_CONFIRM_RETRY_LIMIT) {

@@ -37,6 +37,7 @@ public class FileServiceImpl implements FileService {
         if(redisUtil.sHasKey(redisFileKey, fileHash)){
             throw new BusinessException("文件已存在，无法重复上传");
         }
+        // 短时间快速触发会导致读失效
         if(redisUtil.sGetSetSize(redisFileKey) >= Constants.FILE_AMOUNT_LIMIT){
             throw new BusinessException("项目上传文件数量已达上限，无法上传更多文件");
         }
@@ -90,7 +91,11 @@ public class FileServiceImpl implements FileService {
             throw new BusinessException("该分片已上传，无需重复上传");
         }
         String targetFilePath = uploadFileDto.getFilePath() + File.separator + chunkIndex;
-        FileUtils.transferFile(file, targetFilePath);
+        try {
+            FileUtils.transferFile(file, targetFilePath);
+        } catch (Exception e) {
+            redisUtil.setRemove(String.format(RedisKey.REDIS_KEY_UPLOAD_CHUNKS, uploadId), chunkIndex);
+        }
     }
 
     @Override
@@ -125,14 +130,5 @@ public class FileServiceImpl implements FileService {
         }
         // 将确认上传任务放入队列，异步处理文件合并和入
         redisUtil.lSet(RedisKey.REDIS_KEY_CONFIRMED_FILE_QUEUE, UploadConfirmDto.builder().projectId(projectId).retryCount(0).build());
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void saveProjectFiles(Long projectId, List<ProjectFile> projectFiles) {
-        fileRepository.saveAll(projectFiles);
-        // 成功后删除缓存
-        redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE, projectId));
-        redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, projectId));
     }
 }

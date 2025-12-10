@@ -14,6 +14,4 @@ public interface FileService {
     public void deleteTempFile(Long projectId, String uploadId);
 
     public void confirmUpload(Long projectId);
-
-    public void saveProjectFiles(Long projectId, List<ProjectFile> projectFiles);
 }
