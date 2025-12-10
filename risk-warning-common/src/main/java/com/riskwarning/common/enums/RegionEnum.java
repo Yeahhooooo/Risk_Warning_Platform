@@ -1,5 +1,8 @@
 package com.riskwarning.common.enums;
 
+import lombok.Getter;
+
+@Getter
 public enum RegionEnum {
 
     CHINA("CN", "中国"),
@@ -16,11 +19,18 @@ public enum RegionEnum {
         this.description = description;
     }
 
-    public String getCode() {
-        return code;
+    public static RegionEnum fromCode(String code) {
+        if (code == null) return null;
+        for (RegionEnum r : values()) {
+            if (r.code.equals(code) || r.name().equalsIgnoreCase(code)) return r;
+        }
+        throw new IllegalArgumentException("Unknown RegionEnum code: " + code);
     }
 
-    public String getDescription() {
+
+    @Override
+    public String toString() {
         return description;
     }
+
 }

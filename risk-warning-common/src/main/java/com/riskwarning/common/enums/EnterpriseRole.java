@@ -2,13 +2,10 @@ package com.riskwarning.common.enums;
 
 import lombok.Getter;
 
-/**
- * 企业角色枚举
- */
 @Getter
 public enum EnterpriseRole {
-    ADMIN("admin", "管理员"),
-    MEMBER("member", "成员");
+    admin("admin", "管理员"),
+    member("member", "成员");
 
     private final String code;
     private final String description;
@@ -17,4 +14,21 @@ public enum EnterpriseRole {
         this.code = code;
         this.description = description;
     }
+
+    public static EnterpriseRole from(String s) {
+        if (s == null) return null;
+        String normalized = s.trim();
+        for (EnterpriseRole r : values()) {
+            if (r.code.equalsIgnoreCase(normalized) || r.name().equalsIgnoreCase(normalized)) {
+                return r;
+            }
+        }
+        throw new IllegalArgumentException("Unknown EnterpriseRole: " + s);
+    }
+
+    @Override
+    public String toString() {
+        return code;
+    }
 }
+
