@@ -10,9 +10,15 @@ public class AddMemberRequest {
     @Setter
     private Long userId;
 
+
+    /**
+     * project_admin: 管理员
+     * editor: 编辑
+     * viewer: 成员
+     */
     @Getter
     @Setter
-    private String role; // e.g. "member" or "admin"
+    private String role;
 
 
 }
