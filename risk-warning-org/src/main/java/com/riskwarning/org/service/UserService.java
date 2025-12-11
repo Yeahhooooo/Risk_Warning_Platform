@@ -38,7 +38,7 @@ public interface UserService {
      * @param email 邮箱
      * @return 用户信息
      */
-    User getUserByEmail(String email);
+    UserResponse getUserByEmail(String email);
 
     /**
      * 更新用户信息
@@ -57,4 +57,7 @@ public interface UserService {
      * @return 是否验证成功
      */
     boolean validatePassword(User user, String rawPassword);
+
+
+
 }
