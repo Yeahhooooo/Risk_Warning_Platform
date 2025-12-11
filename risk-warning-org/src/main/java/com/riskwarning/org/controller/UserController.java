@@ -111,6 +111,25 @@ public class UserController {
             return Result.fail(e.getMessage());
         }
     }
+
+    /**
+     * 根据邮箱查询用户信息
+     *
+     * @param email 用户邮箱
+     * @return 用户信息
+     */
+    @GetMapping("/email")
+    public Result<UserResponse> getUserByEmail(@RequestParam String email) {
+        try {
+            UserResponse userResponse = userService.getUserByEmail(email);
+            return Result.success(userResponse);
+        } catch (Exception e) {
+            log.error("根据邮箱获取用户信息失败: {}", e.getMessage());
+            return Result.fail(e.getMessage());
+        }
+    }
+
+
 }
 
 
