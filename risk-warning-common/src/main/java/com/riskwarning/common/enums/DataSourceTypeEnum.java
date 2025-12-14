@@ -21,4 +21,13 @@ public enum DataSourceTypeEnum {
         this.code = code;
         this.description = description;
     }
+
+    public static DataSourceTypeEnum getEnumByCode(String code) {
+        for (DataSourceTypeEnum type : DataSourceTypeEnum.values()) {
+            if (type.getCode().equals(code)) {
+                return type;
+            }
+        }
+        return null;
+    }
 }

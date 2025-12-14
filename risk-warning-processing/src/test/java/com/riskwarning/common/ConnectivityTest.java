@@ -103,10 +103,10 @@ public class ConnectivityTest {
             message.setMessageId("test-message-id");
             message.setTraceId("test-trace-id");
             message.setTimestamp(String.valueOf(System.currentTimeMillis()));
-            message.setUserId("test-user-id");
-            message.setProjectId("test-project-id");
-            message.setEnterpriseId("test-enterprise-id");
-            message.setAssessmentId("test-assessment-id");
+            message.setUserId(111L);
+            message.setProjectId(111l);
+            message.setEnterpriseId(111l);
+            message.setAssessmentId(1l);
             kafkaUtils.sendMessage(message);
             String result = kafkaUtils.receiveMessage();
             System.out.println("Received message from Kafka: " + result);

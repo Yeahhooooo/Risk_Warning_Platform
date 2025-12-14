@@ -3,6 +3,7 @@ package com.riskwarning.common.message;
 import com.alibaba.fastjson2.JSON;
 import com.riskwarning.common.enums.KafkaTopic;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
@@ -19,15 +20,15 @@ public class Message {
 
     private String traceId;
 
-    private String userId;
+    private Long userId;
 
-    private String projectId;
+    private Long projectId;
 
-    private String enterpriseId;
+    private Long enterpriseId;
 
-    private String assessmentId;
+    private Long assessmentId;
 
-    public Message(String messageId, String timestamp, String traceId, String userId, String projectId, String enterpriseId, String assessmentId) {
+    public Message(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long enterpriseId, Long assessmentId) {
         this.messageId = messageId;
         this.timestamp = timestamp;
         this.traceId = traceId;
