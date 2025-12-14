@@ -63,4 +63,8 @@ public class AuthAspect {
             UserContext.clear();
         }
     }
+
+    public static void main(String[] args) {
+        System.out.println("00011001".compareTo("011001"));
+    }
 }

@@ -1,5 +1,7 @@
 server:
   port: 8084
-
-
+spring:
+  batch:
+    jdbc:
+      initialize-schema: always  # 自动创建Spring Batch的表结构
 

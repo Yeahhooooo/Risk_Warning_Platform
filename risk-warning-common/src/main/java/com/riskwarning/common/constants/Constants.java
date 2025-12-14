@@ -9,6 +9,8 @@ public class Constants {
 
     public static final String FILE_PERSIST_DIR = "storage" + File.separator + "persist";
 
+    public static final String FILE_PROCESSING_DIR =  "storage" + File.separator + "processing";
+
     public static final Long FILE_SIZE_LIMIT = 10 * 1024 * 1024L; // 10 MB
 
     public static final Integer FILE_CHUNK_SIZE = 1024 * 1024; // 1 MB
@@ -23,6 +25,10 @@ public class Constants {
 
     public static String getTempFileDirPath(Long projectId, String uploadId) {
         return new File("").getAbsolutePath() + File.separator + Constants.FILE_TEMP_DIR + File.separator + projectId + File.separator + uploadId;
+    }
+
+    public static String getProcessingFileDirPath(Long projectId) {
+        return new File("").getAbsolutePath() + File.separator +  Constants.FILE_PROCESSING_DIR + File.separator + projectId;
     }
 
     public static String getPersistFileDirPath(Long projectId) {

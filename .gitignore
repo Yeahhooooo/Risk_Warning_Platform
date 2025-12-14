@@ -142,5 +142,4 @@ yarn-error.log*
 
 # Elasticsearch data (if running locally)
 elasticsearch-*/
-data/
 storage/

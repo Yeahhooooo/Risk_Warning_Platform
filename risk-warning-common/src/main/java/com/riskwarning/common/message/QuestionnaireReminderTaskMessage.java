@@ -8,7 +8,7 @@ import lombok.EqualsAndHashCode;
 @Data
 public class QuestionnaireReminderTaskMessage extends Message {
 
-    public QuestionnaireReminderTaskMessage(String messageId, String timestamp, String traceId, String userId, String projectId, String enterpriseId, String assessmentId) {
+    public QuestionnaireReminderTaskMessage(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long enterpriseId, Long assessmentId) {
         super(messageId, timestamp, traceId, userId, projectId, enterpriseId, assessmentId);
         this.setTopic(KafkaTopic.QUESTIONNAIRE_REMINDER_TASKS);
     }
