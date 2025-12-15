@@ -18,4 +18,8 @@ public class RiskAssessmentTaskMessage extends Message {
     public RiskAssessmentTaskMessage() {
         this.setTopic(KafkaTopic.RISK_ASSESSMENT_TASKS);
     }
+
+    public static void main(String[] args) {
+
+    }
 }

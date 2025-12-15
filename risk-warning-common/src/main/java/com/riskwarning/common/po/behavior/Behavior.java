@@ -32,7 +32,7 @@ public class Behavior {
 
     private LocalDateTime behaviorDate;
 
-    private List<Double> vector;
+    private float[] descriptionVector;
 
     private LocalDateTime createdAt;
 }

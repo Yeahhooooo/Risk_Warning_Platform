@@ -4,9 +4,9 @@ import lombok.Getter;
 
 @Getter
 public enum ProjectStatus {
+    NOT_STARTED("NOT_STARTED", "未评估"),
     IN_PROGRESS("IN_PROGRESS", "进行中"),
-    COMPLETED("COMPLETED", "已完成"),
-    ARCHIVED("ARCHIVED", "已归档");
+    COMPLETED("COMPLETED", "已完成");
 
     private final String code;
     // 返回将写入数据库的值（中文）

@@ -31,7 +31,7 @@ public class Indicator {
     private CalculationRule calculationRule;
     private RiskRule riskRule;
     private LocalDateTime createAt;
-    private List<Double> vector;
+    private float[] nameVector;
 
 
     @Override

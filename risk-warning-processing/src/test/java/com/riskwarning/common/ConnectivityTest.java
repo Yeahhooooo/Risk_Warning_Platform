@@ -4,6 +4,8 @@ package com.riskwarning.common;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.InfoResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
+import com.riskwarning.common.po.behavior.Behavior;
+import com.riskwarning.common.po.regulation.Regulation;
 import com.riskwarning.processing.ProcessingApplication;
 import com.riskwarning.common.dto.IndicatorResultDTO;
 import com.riskwarning.common.enums.KafkaTopic;
@@ -55,21 +57,26 @@ public class ConnectivityTest {
             // 尝试获取集群信息以验证连接
             InfoResponse infoResponse = client.info();
             System.out.println("Connected to Elasticsearch cluster: " + infoResponse.clusterName());
-            List<Indicator> list = findAllIndicators();
-            System.out.println("Successfully queried indicators from Elasticsearch." + list.size());
+            List<Indicator> indicatorList = findAll("t_indicator", Indicator.class);
+            List<Behavior> behaviorList = findAll("t_behavior", Behavior.class);
+            List<Regulation> regulationList = findAll("t_regulation", Regulation.class);
+            System.out.println("Successfully queried indicators from Elasticsearch." + indicatorList.size());
+            System.out.println("Successfully queried behaviors from Elasticsearch." + behaviorList.size());
+            System.out.println("Successfully queried regulation from Elasticsearch." + regulationList.size());
+            System.out.println("Successfully queried regulation from Elasticsearch.");
         } catch (Exception e) {
             e.printStackTrace();
             assert false : "Failed to connect to Elasticsearch";
         }
     }
 
-    public List<Indicator> findAllIndicators() {
+    public <T> List<T> findAll(String indexName, Class<T> clazz) {
         try {
-            SearchResponse<Indicator> response = client.search(
+            SearchResponse<T> response = client.search(
                     s -> s
-                            .index("t_indicator")
-                            .size(1200), // 设置返回的文档数量上限
-                    Indicator.class);
+                            .index(indexName)
+                            .size(10), // 设置返回的文档数量上限
+                    clazz);
 
             return response.hits().hits().stream()
                     .map(hit -> hit.source()).collect(Collectors.toList());
