@@ -24,7 +24,7 @@ public class MessageTask {
         try {
             switch (message.getType()){
                 case FILE_UPLOAD:
-                    batchJob.runBatchJob(message);
+
                     break;
                 case KNOWLEDGE_QUERY:
                     // todo: 处理知识查询任务

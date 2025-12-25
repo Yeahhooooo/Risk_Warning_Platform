@@ -73,6 +73,9 @@ public class ExecuteQueueTask {
                         // 成功后删除缓存
                         redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE, uploadConfirmDto.getProjectId()));
                         redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, uploadConfirmDto.getProjectId()));
+
+                        // todo: 发送消息队列
+
                     } catch (Exception e) {
                         log.error("Error processing file upload confirm queue", e);
                         if(uploadConfirmDto != null && uploadConfirmDto.getRetryCount() >= Constants.UPLOAD_CONFIRM_RETRY_LIMIT) {

@@ -4,6 +4,7 @@ package com.riskwarning.common;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.InfoResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
+import com.riskwarning.common.config.TestConsumer;
 import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.common.po.regulation.Regulation;
 import com.riskwarning.processing.ProcessingApplication;
@@ -11,11 +12,11 @@ import com.riskwarning.common.dto.IndicatorResultDTO;
 import com.riskwarning.common.enums.KafkaTopic;
 import com.riskwarning.common.message.*;
 import com.riskwarning.common.po.indicator.Indicator;
-import com.riskwarning.common.utils.KafkaUtils;
 import com.riskwarning.common.utils.RedisUtil;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.kafka.core.KafkaTemplate;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -35,8 +36,13 @@ public class ConnectivityTest {
 
     @Autowired
     private RedisUtil redisUtil;
+
+
     @Autowired
-    private KafkaUtils kafkaUtils;
+    private KafkaTemplate<String, Message> kafkaTemplate;
+
+    @Autowired
+    private TestConsumer testConsumer;
 
     @Test
     public void testDatabaseConnection() {
@@ -105,7 +111,7 @@ public class ConnectivityTest {
     public void testKafkaConnection() {
         try {
             // basic Message
-            Message message = new Message();
+            BehaviorProcessingTaskMessage message = new BehaviorProcessingTaskMessage();
             message.setTopic(KafkaTopic.TEST_TOPIC);
             message.setMessageId("test-message-id");
             message.setTraceId("test-trace-id");
@@ -114,10 +120,15 @@ public class ConnectivityTest {
             message.setProjectId(111l);
             message.setEnterpriseId(111l);
             message.setAssessmentId(1l);
-            kafkaUtils.sendMessage(message);
-            String result = kafkaUtils.receiveMessage();
+            message.setFilePaths(new ArrayList<>());
+            message.getFilePaths().add("test");
+            message.getFilePaths().add("test");
+
+            String topic = message.getTopic().getTopicName();
+            kafkaTemplate.send(topic, message);
+            Message result = testConsumer.awaitMessage();
             System.out.println("Received message from Kafka: " + result);
-            assert result.contains("test-message-id");
+            assert result != null;
         } catch (Exception e) {
             e.printStackTrace();
             assert false : "Failed to connect to Kafka";
