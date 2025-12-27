@@ -129,6 +129,13 @@ public class FileServiceImpl implements FileService {
             }
         }
         // 将确认上传任务放入队列，异步处理文件合并和入
-        redisUtil.lSet(RedisKey.REDIS_KEY_CONFIRMED_FILE_QUEUE, UploadConfirmDto.builder().projectId(projectId).retryCount(0).build());
+        redisUtil.lSet(
+                RedisKey.REDIS_KEY_CONFIRMED_FILE_QUEUE,
+                UploadConfirmDto.builder()
+                        .projectId(projectId)
+                        .userId(UserContext.getUser().getId())
+                        .retryCount(0)
+                        .build()
+        );
     }
 }

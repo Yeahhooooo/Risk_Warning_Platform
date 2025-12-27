@@ -18,10 +18,10 @@ public class BehaviorProcessingTaskMessage extends Message {
         this.setTopic(KafkaTopic.BEHAVIOR_PROCESSING_TASKS);
     }
 
-    public BehaviorProcessingTaskMessage(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long enterpriseId, Long assessmentId, String type, List<String> filePaths) {
-        super(messageId, timestamp, traceId, userId, projectId, enterpriseId, assessmentId);
+    public BehaviorProcessingTaskMessage(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long assessmentId, DataSourceTypeEnum type, List<String> filePaths) {
+        super(messageId, timestamp, traceId, userId, projectId, assessmentId);
         this.setTopic(KafkaTopic.BEHAVIOR_PROCESSING_TASKS);
-        this.type = DataSourceTypeEnum.getEnumByCode(type);
+        this.type = type;
         if(this.type == null) {
             throw new IllegalArgumentException("Invalid data source type: " + type);
         }

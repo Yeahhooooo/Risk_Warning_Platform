@@ -24,17 +24,14 @@ public class Message {
 
     private Long projectId;
 
-    private Long enterpriseId;
-
     private Long assessmentId;
 
-    public Message(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long enterpriseId, Long assessmentId) {
+    public Message(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long assessmentId) {
         this.messageId = messageId;
         this.timestamp = timestamp;
         this.traceId = traceId;
         this.userId = userId;
         this.projectId = projectId;
-        this.enterpriseId = enterpriseId;
         this.assessmentId = assessmentId;
     }
 

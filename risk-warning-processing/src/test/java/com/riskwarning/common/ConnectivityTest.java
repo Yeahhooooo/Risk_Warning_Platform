@@ -21,6 +21,8 @@ import org.springframework.kafka.core.KafkaTemplate;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -118,7 +120,6 @@ public class ConnectivityTest {
             message.setTimestamp(String.valueOf(System.currentTimeMillis()));
             message.setUserId(111L);
             message.setProjectId(111l);
-            message.setEnterpriseId(111l);
             message.setAssessmentId(1l);
             message.setFilePaths(new ArrayList<>());
             message.getFilePaths().add("test");
@@ -134,6 +135,7 @@ public class ConnectivityTest {
             assert false : "Failed to connect to Kafka";
         }
     }
+
 
 
 }

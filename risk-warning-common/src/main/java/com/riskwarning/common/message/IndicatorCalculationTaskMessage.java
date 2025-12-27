@@ -8,8 +8,8 @@ import lombok.EqualsAndHashCode;
 @Data
 public class IndicatorCalculationTaskMessage extends Message{
 
-    public IndicatorCalculationTaskMessage(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long enterpriseId, Long assessmentId) {
-        super(messageId, timestamp, traceId, userId, projectId, enterpriseId, assessmentId);
+    public IndicatorCalculationTaskMessage(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long assessmentId) {
+        super(messageId, timestamp, traceId, userId, projectId, assessmentId);
         this.setTopic(KafkaTopic.INDICATOR_CALCULATION_TASKS);
     }
 

@@ -23,6 +23,7 @@ public class TestConsumer {
         latch.countDown();
     }
 
+    @KafkaListener(topics = "test", groupId = "test-group")
     public Message awaitMessage() throws InterruptedException {
         latch.await();
         return receiveMessage;

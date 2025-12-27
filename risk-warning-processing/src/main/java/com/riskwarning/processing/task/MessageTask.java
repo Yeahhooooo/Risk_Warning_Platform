@@ -10,6 +10,7 @@ import org.springframework.batch.core.JobParameters;
 import org.springframework.batch.core.JobParametersBuilder;
 import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -19,12 +20,13 @@ public class MessageTask {
     @Autowired
     private BatchJob batchJob;
 
+
+    @KafkaListener(topics = "behavior_processing_tasks", groupId = "test-consumer")
     public void onMessage(BehaviorProcessingTaskMessage message) {
         log.info("Received message: {}", message);
         try {
             switch (message.getType()){
                 case FILE_UPLOAD:
-
                     break;
                 case KNOWLEDGE_QUERY:
                     // todo: 处理知识查询任务
