@@ -11,6 +11,7 @@ import com.riskwarning.processing.repository.IndicatorResultRepository;
 import com.riskwarning.processing.repository.AssessmentResultRepository;
 import com.riskwarning.processing.util.behavior.FallbackCalculator;
 import com.riskwarning.processing.util.behavior.QualitativeCalculator;
+import com.riskwarning.processing.util.behavior.QuantitativeCalculator;
 import com.riskwarning.processing.util.behavior.RegWeightCalculator;
 import com.riskwarning.processing.util.behavior.SimilarityCalculator;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -346,15 +347,33 @@ public class BehaviorProcessingService {
 
     /**
      * 对单个法规进行定性/定量计算
-     * 定量计算暂不实现，仅实现定性计算
+     * 优先使用定量计算（如果法规和行为都有定量数据），否则使用定性计算
      */
     private double computeRegulationScore(Behavior behavior, Regulation regulation) {
-        // 定性计算：根据法规方向和行为状态矩阵计算
-        // TODO: 定量计算 - 根据 regulation.getQuantitativeIndicator() 和 behavior.getQuantitativeData() 计算
-        return QualitativeCalculator.computeQualitativeScore(
-                regulation.getDirection(),
-                behavior != null ? behavior.getStatus() : null
-        );
+        // 判断是否有定量数据
+        boolean hasQuantitativeData = regulation.getQuantitativeIndicator() != null
+                && behavior != null
+                && behavior.getQuantitative_data() != null;
+
+        if (hasQuantitativeData) {
+            // 定量计算：根据法规定量指标和行为定量数据计算
+            double quantitativeScore = QuantitativeCalculator.computeQuantitativeScore(
+                    regulation.getQuantitativeIndicator(),
+                    behavior.getQuantitative_data(),
+                    regulation.getDirection(),
+                    behavior.getStatus()
+            );
+            
+            return quantitativeScore;
+        } else {
+            // 定性计算：根据法规方向和行为状态矩阵计算
+            double qualitativeScore = QualitativeCalculator.computeQualitativeScore(
+                    regulation.getDirection(),
+                    behavior != null ? behavior.getStatus() : null
+            );
+
+            return qualitativeScore;
+        }
     }
 
 
