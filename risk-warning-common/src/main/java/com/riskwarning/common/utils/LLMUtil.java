@@ -111,7 +111,28 @@ public class LLMUtil {
     );
 
     /**
-     * 根据指标的自然语言描述推断tags
+     * 预定义的行为类型列表
+     */
+    private static final List<String> behaviorTypes = Arrays.asList(
+            "定性", "定量"
+    );
+
+    /**
+     * 预定义的行为状态列表
+     */
+    private static final List<String> behaviorStatuses = Arrays.asList(
+            "已完成", "进行中", "暂停", "终止"
+    );
+
+    /**
+     * 预定义的风险维度列表
+     */
+    private static final List<String> dimensions = Arrays.asList(
+            "企业关联方风险", "产品合规风险", "劳务合规风险", "企业信用风险", "企业国际合作风险", "供应链风险"
+    );
+
+    /**
+     * 根据指标的自然语言描��推断tags
      *
      * @param indicatorName 指标名称
      * @return 推断出的标签列表
@@ -215,6 +236,57 @@ public class LLMUtil {
     }
 
     /**
+     * 批量推断行为类型（定性/定量）
+     *
+     * @param behaviorList 行为描述列表
+     * @return 每个行为对应的类型列表，返回结果为List<String>
+     * @throws IOException 网络请求异常
+     */
+    public static List<String> inferBehaviorTypesBatch(List<String> behaviorList) throws IOException {
+        if (behaviorList == null || behaviorList.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+
+        String prompt = buildBehaviorTypesInferencePrompt(behaviorList);
+        String response = callLLMApi(prompt);
+        return parseBehaviorTypesFromResponse(response, behaviorList.size());
+    }
+
+    /**
+     * 批量推断行为状态（已完成/进行中/暂停/终止）
+     *
+     * @param behaviorList 行为描述列表
+     * @return 每个行为对应的状态列表，返回结果为List<String>
+     * @throws IOException 网络请求异常
+     */
+    public static List<String> inferBehaviorStatusesBatch(List<String> behaviorList) throws IOException {
+        if (behaviorList == null || behaviorList.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+
+        String prompt = buildBehaviorStatusesInferencePrompt(behaviorList);
+        String response = callLLMApi(prompt);
+        return parseBehaviorStatusesFromResponse(response, behaviorList.size());
+    }
+
+    /**
+     * 批量推断行为风险维度
+     *
+     * @param behaviorList 行为描述列表
+     * @return 每个行为对应的风险维度列表，返回结果为List<String>
+     * @throws IOException 网络请求异常
+     */
+    public static List<String> inferBehaviorDimensionsBatch(List<String> behaviorList) throws IOException {
+        if (behaviorList == null || behaviorList.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+
+        String prompt = buildBehaviorDimensionsInferencePrompt(behaviorList);
+        String response = callLLMApi(prompt);
+        return parseBehaviorDimensionsFromResponse(response, behaviorList.size());
+    }
+
+    /**
      * 构建用于行业推断的Prompt
      *
      * @param indicatorName 指标名称
@@ -240,6 +312,114 @@ public class LLMUtil {
         promptBuilder.append("3. 如果无法明确判断，选择'综合类'\n");
         promptBuilder.append("4. 输出格式必须是纯JSON数组，例如：[\"银行业\", \"证券业\"]\n");
         promptBuilder.append("5. 一定不要包含任何其他文字或者你的分析过程，只输出JSON数组\n");
+
+        return promptBuilder.toString();
+    }
+
+    /**
+     * 构建用于行为类型推断的Prompt
+     *
+     * @param behaviorList 行为描述列表
+     * @return 完整的Prompt字符串
+     */
+    private static String buildBehaviorTypesInferencePrompt(List<String> behaviorList) {
+        StringBuilder promptBuilder = new StringBuilder();
+
+        promptBuilder.append("你是一个专业的行为分析师。请根据给定的行为描述，判断每个行为是定性的还是定量的。在其他开始前请你注意我的要求：你的回复一定不要包含任何其他文字或者你的分析过程，只输出JSON数组\n\n");
+
+        promptBuilder.append("需要分析的行为列表：\n");
+        for (int i = 0; i < behaviorList.size(); i++) {
+            promptBuilder.append((i + 1)).append(". ").append(behaviorList.get(i)).append("\n");
+        }
+
+        promptBuilder.append("\n可选行为类型：\n");
+        for (int i = 0; i < behaviorTypes.size(); i++) {
+            promptBuilder.append((i + 1)).append(". ").append(behaviorTypes.get(i)).append("\n");
+        }
+
+        promptBuilder.append("\n请为每个行为判断其类型。\n");
+        promptBuilder.append("判断标准：\n");
+        promptBuilder.append("- 定性：基于描述、特征、质量等主观判断的行为\n");
+        promptBuilder.append("- 定量：基于数据、指标、测量等客观数值的行为\n");
+        promptBuilder.append("要求：\n");
+        promptBuilder.append("1. 只能从'定性'或'定量'中选择一个\n");
+        promptBuilder.append("2. 输出格式必须是纯JSON数组，例如：[\"定量\", \"定性\", \"定量\"]\n");
+        promptBuilder.append("3. 一定不要包含任何其他文字或者你的分析过程，只输出JSON数组\n");
+        promptBuilder.append("4. 结果数组的长度必须与输入行为数量一致（").append(behaviorList.size()).append("个）\n");
+
+        return promptBuilder.toString();
+    }
+
+    /**
+     * 构建用于行为状态推断的Prompt
+     *
+     * @param behaviorList 行为描述列表
+     * @return 完整的Prompt字符串
+     */
+    private static String buildBehaviorStatusesInferencePrompt(List<String> behaviorList) {
+        StringBuilder promptBuilder = new StringBuilder();
+
+        promptBuilder.append("你是一个专业的行为状态分析师。请根据给定的行为描述，判断每个行为的执行状态。在其他开始前请你注意我的要求：你的回复一定不要包含任何其他文字或者你的分析过程，只输出JSON数组\n\n");
+
+        promptBuilder.append("需要分析的行为列表：\n");
+        for (int i = 0; i < behaviorList.size(); i++) {
+            promptBuilder.append((i + 1)).append(". ").append(behaviorList.get(i)).append("\n");
+        }
+
+        promptBuilder.append("\n可选行为状态：\n");
+        for (int i = 0; i < behaviorStatuses.size(); i++) {
+            promptBuilder.append((i + 1)).append(". ").append(behaviorStatuses.get(i)).append("\n");
+        }
+
+        promptBuilder.append("\n请为每个行为判断其执行状态。\n");
+        promptBuilder.append("判断标准：\n");
+        promptBuilder.append("- 已完成：行为已经完全执行完毕，有明确的结果\n");
+        promptBuilder.append("- 进行中：行为正在执行过程中，还在持续\n");
+        promptBuilder.append("- 暂停：行为暂时停止，但可能会继续\n");
+        promptBuilder.append("- 终止：行为被彻底停止，不会再继续\n");
+        promptBuilder.append("要求：\n");
+        promptBuilder.append("1. 只能从上述预定义状态列表中选择一个\n");
+        promptBuilder.append("2. 输出格式必须是纯JSON数组，例如：[\"已完成\", \"进行中\", \"已完成\"]\n");
+        promptBuilder.append("3. 一定不要包含任何其他文字或者你的分析过程，只输出JSON数组\n");
+        promptBuilder.append("4. 结果数组的长度必须与输入行为数量一致（").append(behaviorList.size()).append("个）\n");
+
+        return promptBuilder.toString();
+    }
+
+    /**
+     * 构建用于行为风险维度推断的Prompt
+     *
+     * @param behaviorList 行为描述列表
+     * @return 完整的Prompt字符串
+     */
+    private static String buildBehaviorDimensionsInferencePrompt(List<String> behaviorList) {
+        StringBuilder promptBuilder = new StringBuilder();
+
+        promptBuilder.append("你是一个专业的风险分析师。请根据给定的行为描述，判断每个行为属于哪个风险维度。在其他开始前请你注意我的要求：你的回复一定不要包含任何其他文字或者你的分析过程，只输出JSON数组\n\n");
+
+        promptBuilder.append("需要分析的行为列表：\n");
+        for (int i = 0; i < behaviorList.size(); i++) {
+            promptBuilder.append((i + 1)).append(". ").append(behaviorList.get(i)).append("\n");
+        }
+
+        promptBuilder.append("\n可选风险维度：\n");
+        for (int i = 0; i < dimensions.size(); i++) {
+            promptBuilder.append((i + 1)).append(". ").append(dimensions.get(i)).append("\n");
+        }
+
+        promptBuilder.append("\n请为每个行为选择最适合的风险维度。\n");
+        promptBuilder.append("风险维度说明：\n");
+        promptBuilder.append("- 企业关联方风险：与关联企业、关联交易相关的风险\n");
+        promptBuilder.append("- 产品合规风险：产品设计、生产、销售等合规相关的风险\n");
+        promptBuilder.append("- 劳务合规风险：劳动关系、员工管理等合规相关的风险\n");
+        promptBuilder.append("- 企业信用风险：企业信誉、信用等级等相关的风险\n");
+        promptBuilder.append("- 企业国际合作风险：跨境业务、国际合作等相关的风险\n");
+        promptBuilder.append("- 供应链风险：供应商管理、采购等供应链相关的风险\n");
+        promptBuilder.append("要求：\n");
+        promptBuilder.append("1. 只能从上述预定义风险维度列表中选择一个\n");
+        promptBuilder.append("2. 输出格式必须是纯JSON数组，例如：[\"企业关联方风险\", \"产品合规风险\"]\n");
+        promptBuilder.append("3. 一定不要包含任何其他文字或者你的分析过程，只输出JSON数组\n");
+        promptBuilder.append("4. 结果数组的长度必须与输入行为数量一致（").append(behaviorList.size()).append("个）\n");
 
         return promptBuilder.toString();
     }
@@ -452,6 +632,141 @@ public class LLMUtil {
         }
     }
 
+    /**
+     * 从LLM响应中解析行为类型列表
+     *
+     * @param response LLM响应
+     * @param expectedSize 期望的结果数量
+     * @return 行为类型列表
+     */
+    private static List<String> parseBehaviorTypesFromResponse(String response, int expectedSize) {
+        List<String> behaviorTypesList = new java.util.ArrayList<>();
+
+        try {
+            // 清理响应字符串
+            String cleanedResponse = response.trim();
+
+            // 移除可能的代码块标记
+            cleanedResponse = cleanedResponse.replaceAll("```json", "")
+                    .replaceAll("```", "")
+                    .trim();
+
+            // 提取JSON数组部分
+            cleanedResponse = cleanedResponse.substring(cleanedResponse.lastIndexOf("["));
+
+            // 解析JSON数组
+            JSONArray typesArray = JSONUtil.parseArray(cleanedResponse);
+
+            for (int i = 0; i < typesArray.size(); i++) {
+                String behaviorType = typesArray.getStr(i);
+                // 验证是否在预定义行为类型列表中
+                if (behaviorTypes.contains(behaviorType)) {
+                    behaviorTypesList.add(behaviorType);
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("解析行为类型响应时出错: " + e.getMessage());
+        }
+
+        // 如果解析结果数量不匹配，补充默认值
+        while (behaviorTypesList.size() < expectedSize) {
+            behaviorTypesList.add("定性");
+        }
+
+        return behaviorTypesList.subList(0, expectedSize);
+    }
+
+    /**
+     * 从LLM响应中解析行为状态列表
+     *
+     * @param response LLM响应
+     * @param expectedSize 期望的结果数量
+     * @return 行为状态列表
+     */
+    private static List<String> parseBehaviorStatusesFromResponse(String response, int expectedSize) {
+        List<String> behaviorStatusesList = new java.util.ArrayList<>();
+
+        try {
+            // 清理响应字符串
+            String cleanedResponse = response.trim();
+
+            // 移除可能的代码块标记
+            cleanedResponse = cleanedResponse.replaceAll("```json", "")
+                    .replaceAll("```", "")
+                    .trim();
+
+            // 提取JSON数组部分
+            cleanedResponse = cleanedResponse.substring(cleanedResponse.lastIndexOf("["));
+
+            // 解析JSON数组
+            JSONArray statusesArray = JSONUtil.parseArray(cleanedResponse);
+
+            for (int i = 0; i < statusesArray.size(); i++) {
+                String behaviorStatus = statusesArray.getStr(i);
+                // 验证是否在预定义行为状态列表中
+                if (behaviorStatuses.contains(behaviorStatus)) {
+                    behaviorStatusesList.add(behaviorStatus);
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("解析行为状态响应时出错: " + e.getMessage());
+        }
+
+        // 如果解析结果数量不匹配，补充默认值
+        while (behaviorStatusesList.size() < expectedSize) {
+            behaviorStatusesList.add("进行中");
+        }
+
+        return behaviorStatusesList.subList(0, expectedSize);
+    }
+
+    /**
+     * 从LLM响应中解析行为风险维度列表
+     *
+     * @param response LLM响应
+     * @param expectedSize 期望的结果数量
+     * @return 风险维度列表
+     */
+    private static List<String> parseBehaviorDimensionsFromResponse(String response, int expectedSize) {
+        List<String> behaviorDimensionsList = new java.util.ArrayList<>();
+
+        try {
+            // 清理响应字符串
+            String cleanedResponse = response.trim();
+
+            // 移除可能的代码块标记
+            cleanedResponse = cleanedResponse.replaceAll("```json", "")
+                    .replaceAll("```", "")
+                    .trim();
+
+            // 提取JSON数组部分
+            cleanedResponse = cleanedResponse.substring(cleanedResponse.lastIndexOf("["));
+
+            // 解析JSON数组
+            JSONArray dimensionsArray = JSONUtil.parseArray(cleanedResponse);
+
+            for (int i = 0; i < dimensionsArray.size(); i++) {
+                String behaviorDimension = dimensionsArray.getStr(i);
+                // 验证是否在预定义风险维度列表中
+                if (dimensions.contains(behaviorDimension)) {
+                    behaviorDimensionsList.add(behaviorDimension);
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("解析行为风险维度响应时出错: " + e.getMessage());
+        }
+
+        // 如果解析结果数量不匹配，补充默认值
+        while (behaviorDimensionsList.size() < expectedSize) {
+            behaviorDimensionsList.add("企业信用风险");
+        }
+
+        return behaviorDimensionsList.subList(0, expectedSize);
+    }
+
 
     /**
      * 测试方法 - 验证大模型连接是否成功
@@ -481,5 +796,11 @@ public class LLMUtil {
         for(List<String> res : behaviorsResult){
             System.out.println(res);
         }
+        List<String> behaviorTypes = inferBehaviorTypesBatch(behaviors);
+        System.out.println("行为类型："+behaviorTypes);
+        List<String> behaviorStatuses = inferBehaviorStatusesBatch(behaviors);
+        System.out.println("行为状态："+behaviorStatuses);
+        List<String> behaviorDimensions = inferBehaviorDimensionsBatch(behaviors);
+        System.out.println("行为风险维度："+behaviorDimensions);
     }
 }

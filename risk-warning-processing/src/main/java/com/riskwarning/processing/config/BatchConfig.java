@@ -1,5 +1,6 @@
 package com.riskwarning.processing.config;
 
+import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.processing.batch.*;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
@@ -75,7 +76,7 @@ public class BatchConfig extends DefaultBatchConfigurer {
     @Bean
     public Step workerStep() {
         return stepBuilderFactory.get("workerStep")
-                .<String, String>chunk(50)
+                .<String, Behavior>chunk(100)
                 .reader(lineRangeItemReader)
                 .processor(lineProcessor)
                 .writer(lineRangeItemWriter)

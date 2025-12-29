@@ -39,7 +39,7 @@ public class BatchTest {
         behaviorProcessingTaskMessage.getFilePaths().add("/Users/huayecai/Desktop/bach_01/Risk_Warning_Platform/documents/intern/behavior.txt");
         behaviorProcessingTaskMessage.getFilePaths().add("/Users/huayecai/Desktop/bach_01/Risk_Warning_Platform/documents/intern/behavior_temp.txt");
         try {
-            batchJob.runBatchJob(behaviorProcessingTaskMessage);
+            batchJob.runBatchJob(behaviorProcessingTaskMessage.getProjectId(), behaviorProcessingTaskMessage.getFilePaths() );
         } catch (Exception e){
             e.printStackTrace();
         }
