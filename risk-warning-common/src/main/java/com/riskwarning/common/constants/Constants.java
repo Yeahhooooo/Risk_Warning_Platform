@@ -9,6 +9,8 @@ public class Constants {
 
     public static final String FILE_PERSIST_DIR = "storage" + File.separator + "persist";
 
+    public static final String FILE_INTERNAL_DIR =  "storage" + File.separator + "internal";
+
     public static final String FILE_PROCESSING_DIR =  "storage" + File.separator + "processing";
 
     public static final Long FILE_SIZE_LIMIT = 10 * 1024 * 1024L; // 10 MB
@@ -33,5 +35,9 @@ public class Constants {
 
     public static String getPersistFileDirPath(Long projectId) {
         return new File("").getAbsolutePath() + File.separator +  Constants.FILE_PERSIST_DIR + File.separator + projectId;
+    }
+
+    public static String getInternalDirPath(Long projectId) {
+        return new File("").getAbsolutePath() + File.separator +  Constants.FILE_INTERNAL_DIR + File.separator + projectId;
     }
 }

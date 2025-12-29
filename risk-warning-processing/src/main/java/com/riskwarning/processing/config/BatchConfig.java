@@ -8,6 +8,7 @@ import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.batch.core.launch.support.SimpleJobLauncher;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -44,15 +45,9 @@ public class BatchConfig extends DefaultBatchConfigurer {
     @Autowired
     private JobListener jobListener;
 
-    @Bean
-    public ThreadPoolTaskExecutor taskExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(5);  // 核心线程数
-        executor.setMaxPoolSize(10);  // 最大线程数
-        executor.setQueueCapacity(20);  // 等待队列容量
-        executor.setThreadNamePrefix("Batch-");  // 线程名称前缀
-        return executor;
-    }
+    @Autowired
+    @Qualifier(value = "TaskThreadPool")
+    private ThreadPoolTaskExecutor threadPoolTaskExecutor;
 
     @Bean
     public Job job() {
@@ -67,7 +62,7 @@ public class BatchConfig extends DefaultBatchConfigurer {
         return stepBuilderFactory.get("masterStep")
                 .partitioner("workerStep", lineRangePartitioner(null))
                 .step(workerStep())
-                .taskExecutor(taskExecutor())
+                .taskExecutor(threadPoolTaskExecutor)
                 .gridSize(Runtime.getRuntime().availableProcessors())
                 .build();
     }
