@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class JobListener implements JobExecutionListener {
 
-    public static final String RESULT_DIR_PATH = "resultDirPath";
+    public static final String RESULT_FILE_PATH = "resultFilePath";
 
     @Override
     public void beforeJob(JobExecution jobExecution) {
@@ -22,7 +22,7 @@ public class JobListener implements JobExecutionListener {
         log.info("after job");
         // todo: 读取作业完成后的json文件批量插入es
         JobParameters jobParameters = jobExecution.getJobParameters();
-        String resultDirPath = jobParameters.getString(RESULT_DIR_PATH);
-        log.info("resultDirPath: {}", resultDirPath);
+        String resultFilePath = jobParameters.getString(RESULT_FILE_PATH);
+        log.info("resultFilePath: {}", resultFilePath);
     }
 }

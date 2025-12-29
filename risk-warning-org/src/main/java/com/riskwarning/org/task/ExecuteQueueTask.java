@@ -128,7 +128,7 @@ public class ExecuteQueueTask {
                             // 删除缓存
                             redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE, uploadConfirmDto.getProjectId()));
                             redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, uploadConfirmDto.getProjectId()));
-                            FileUtils.delDirectory(Constants.getPersistFileDirPath(uploadConfirmDto.getProjectId()));
+                            FileUtils.delDirectory(Constants.getTempFileDirPath(uploadConfirmDto.getProjectId(), ""));
                         }
                     });
                 });

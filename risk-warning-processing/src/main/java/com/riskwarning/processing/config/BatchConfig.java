@@ -35,6 +35,11 @@ public class BatchConfig extends DefaultBatchConfigurer {
     @Autowired
     private StepBuilderFactory stepBuilderFactory;
 
+    @Autowired
+    private LineRangePartitioner lineRangePartitioner;
+
+    @Autowired
+    private LineRangeItemReader lineRangeItemReader;
 
     @Autowired
     private LineProcessor lineProcessor;
@@ -60,7 +65,7 @@ public class BatchConfig extends DefaultBatchConfigurer {
     @Bean
     public Step masterStep() {
         return stepBuilderFactory.get("masterStep")
-                .partitioner("workerStep", lineRangePartitioner(null))
+                .partitioner("workerStep", lineRangePartitioner)
                 .step(workerStep())
                 .taskExecutor(threadPoolTaskExecutor)
                 .gridSize(Runtime.getRuntime().availableProcessors())
@@ -71,27 +76,10 @@ public class BatchConfig extends DefaultBatchConfigurer {
     public Step workerStep() {
         return stepBuilderFactory.get("workerStep")
                 .<String, String>chunk(50)
-                .reader(lineRangeItemReader(null, 0, 0))
+                .reader(lineRangeItemReader)
                 .processor(lineProcessor)
                 .writer(lineRangeItemWriter)
                 .build();
     }
 
-    @Bean
-    @StepScope
-    public LineRangePartitioner lineRangePartitioner(@Value("#{jobParameters['filePaths']}") String filePaths) {
-        // spring初始化时filePaths可能为null，需处理
-        List<String> paths = filePaths == null ? new ArrayList<>() : Arrays.asList(filePaths.split(","));
-        return new LineRangePartitioner(paths);
-    }
-
-    @Bean
-    @StepScope
-    public LineRangeItemReader lineRangeItemReader(
-            @Value("#{stepExecutionContext['filePath']}") String filePath,
-            @Value("#{stepExecutionContext['startLine']}") int startLine,
-            @Value("#{stepExecutionContext['endLine']}") int endLine
-    ) {
-        return new LineRangeItemReader(filePath, startLine, endLine);
-    }
 }
