@@ -1,5 +1,6 @@
 package com.riskwarning.processing.config;
 
+import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.processing.batch.*;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
@@ -8,6 +9,7 @@ import org.springframework.batch.core.launch.JobLauncher;
 import org.springframework.batch.core.launch.support.SimpleJobLauncher;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,6 +36,11 @@ public class BatchConfig extends DefaultBatchConfigurer {
     @Autowired
     private StepBuilderFactory stepBuilderFactory;
 
+    @Autowired
+    private LineRangePartitioner lineRangePartitioner;
+
+    @Autowired
+    private LineRangeItemReader lineRangeItemReader;
 
     @Autowired
     private LineProcessor lineProcessor;
@@ -44,15 +51,9 @@ public class BatchConfig extends DefaultBatchConfigurer {
     @Autowired
     private JobListener jobListener;
 
-    @Bean
-    public ThreadPoolTaskExecutor taskExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(5);  // 核心线程数
-        executor.setMaxPoolSize(10);  // 最大线程数
-        executor.setQueueCapacity(20);  // 等待队列容量
-        executor.setThreadNamePrefix("Batch-");  // 线程名称前缀
-        return executor;
-    }
+    @Autowired
+    @Qualifier(value = "TaskThreadPool")
+    private ThreadPoolTaskExecutor threadPoolTaskExecutor;
 
     @Bean
     public Job job() {
@@ -65,9 +66,9 @@ public class BatchConfig extends DefaultBatchConfigurer {
     @Bean
     public Step masterStep() {
         return stepBuilderFactory.get("masterStep")
-                .partitioner("workerStep", lineRangePartitioner(null))
+                .partitioner("workerStep", lineRangePartitioner)
                 .step(workerStep())
-                .taskExecutor(taskExecutor())
+                .taskExecutor(threadPoolTaskExecutor)
                 .gridSize(Runtime.getRuntime().availableProcessors())
                 .build();
     }
@@ -75,28 +76,11 @@ public class BatchConfig extends DefaultBatchConfigurer {
     @Bean
     public Step workerStep() {
         return stepBuilderFactory.get("workerStep")
-                .<String, String>chunk(50)
-                .reader(lineRangeItemReader(null, 0, 0))
+                .<String, Behavior>chunk(100)
+                .reader(lineRangeItemReader)
                 .processor(lineProcessor)
                 .writer(lineRangeItemWriter)
                 .build();
     }
 
-    @Bean
-    @StepScope
-    public LineRangePartitioner lineRangePartitioner(@Value("#{jobParameters['filePaths']}") String filePaths) {
-        // spring初始化时filePaths可能为null，需处理
-        List<String> paths = filePaths == null ? new ArrayList<>() : Arrays.asList(filePaths.split(","));
-        return new LineRangePartitioner(paths);
-    }
-
-    @Bean
-    @StepScope
-    public LineRangeItemReader lineRangeItemReader(
-            @Value("#{stepExecutionContext['filePath']}") String filePath,
-            @Value("#{stepExecutionContext['startLine']}") int startLine,
-            @Value("#{stepExecutionContext['endLine']}") int endLine
-    ) {
-        return new LineRangeItemReader(filePath, startLine, endLine);
-    }
 }

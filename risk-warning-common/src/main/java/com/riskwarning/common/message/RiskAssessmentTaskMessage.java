@@ -10,8 +10,8 @@ import lombok.EqualsAndHashCode;
 public class RiskAssessmentTaskMessage extends Message {
     private IndicatorResultDTO indicatorResult;
 
-    public RiskAssessmentTaskMessage(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long enterpriseId, Long assessmentId) {
-        super(messageId, timestamp, traceId, userId, projectId, enterpriseId, assessmentId);
+    public RiskAssessmentTaskMessage(String messageId, String timestamp, String traceId, Long userId, Long projectId, Long assessmentId) {
+        super(messageId, timestamp, traceId, userId, projectId, assessmentId);
         this.setTopic(KafkaTopic.RISK_ASSESSMENT_TASKS);
     }
 

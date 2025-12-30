@@ -2,39 +2,41 @@ package com.riskwarning.processing.batch;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.partition.support.Partitioner;
 import org.springframework.batch.item.ExecutionContext;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.w3c.dom.ls.LSInput;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 
-@Data
+@Component
+@StepScope
 @Slf4j
 public class LineRangePartitioner implements Partitioner {
 
-    private List<String> filePaths;
+    @Value("#{jobParameters['filePaths']}")
+    private String filePaths;
 
     private final int linesPerChunk = 100;
 
-    public LineRangePartitioner(List<String> filePaths) {
-        this.filePaths = filePaths;
-    }
 
     @Override
     public Map<String, ExecutionContext> partition(int gridSize) {
         Map<String, ExecutionContext> result = new HashMap<>();
         AtomicInteger counter = new AtomicInteger(0);
 
+        List<String> paths = filePaths == null ? new ArrayList<>() : Arrays.asList(filePaths.split(","));
+
         // 遍历文件路径列表
-        for (String filePath : filePaths) {
+        for (String filePath : paths) {
             File file = new File(filePath); // 将路径转换为 File 对象
 
             if (!file.exists()) {

@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 @SpringBootTest(classes = ProcessingApplication.class)
 public class BatchTest {
@@ -23,6 +25,12 @@ public class BatchTest {
 
     @Test
     public void testBatch() {
+        Map<Integer, Integer> map = new HashMap<>();
+        for(Map.Entry<Integer, Integer> entry : map.entrySet()){
+            int key = entry.getKey();
+            int value = entry.getValue();
+        }
+
         BehaviorProcessingTaskMessage behaviorProcessingTaskMessage = new BehaviorProcessingTaskMessage();
         behaviorProcessingTaskMessage.setProjectId(1111l);
         behaviorProcessingTaskMessage.setUserId(222l);
@@ -31,7 +39,7 @@ public class BatchTest {
         behaviorProcessingTaskMessage.getFilePaths().add("/Users/huayecai/Desktop/bach_01/Risk_Warning_Platform/documents/intern/behavior.txt");
         behaviorProcessingTaskMessage.getFilePaths().add("/Users/huayecai/Desktop/bach_01/Risk_Warning_Platform/documents/intern/behavior_temp.txt");
         try {
-            batchJob.runBatchJob(behaviorProcessingTaskMessage);
+            batchJob.runBatchJob(behaviorProcessingTaskMessage.getProjectId(), behaviorProcessingTaskMessage.getFilePaths() );
         } catch (Exception e){
             e.printStackTrace();
         }

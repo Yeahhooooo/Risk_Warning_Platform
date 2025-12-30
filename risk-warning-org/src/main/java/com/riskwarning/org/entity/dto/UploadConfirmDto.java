@@ -17,6 +17,8 @@ public class UploadConfirmDto implements Serializable {
 
     private Long projectId;
 
+    private Long userId;
+
     private Integer retryCount;
 
 }

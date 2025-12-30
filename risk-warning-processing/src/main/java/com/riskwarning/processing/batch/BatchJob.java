@@ -1,29 +1,18 @@
 package com.riskwarning.processing.batch;
 
 import com.riskwarning.common.constants.Constants;
-import com.riskwarning.common.message.BehaviorProcessingTaskMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.*;
-import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
-import org.springframework.batch.core.configuration.annotation.StepBuilderFactory;
-import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.launch.JobLauncher;
-import org.springframework.batch.core.partition.support.Partitioner;
 import org.springframework.batch.core.repository.JobExecutionAlreadyRunningException;
 import org.springframework.batch.core.repository.JobInstanceAlreadyCompleteException;
 import org.springframework.batch.core.repository.JobRestartException;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.batch.item.ItemWriter;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.UUID;
 
 /**
  * 批处理工具类
@@ -49,38 +38,38 @@ public class BatchJob {
      * @throws JobInstanceAlreadyCompleteException 作业实例已完成异常
      * @throws JobParametersInvalidException 作业参数无效异常
      */
-    public JobExecution runBatchJob(BehaviorProcessingTaskMessage message)
+    public JobExecution runBatchJob(Long projectId, List<String> filePaths)
             throws JobExecutionAlreadyRunningException, JobRestartException,
                    JobInstanceAlreadyCompleteException, JobParametersInvalidException {
 
-        log.info("开始执行批处理作业: {}", message.getProjectId());
+        log.info("开始执行批处理作业: {}", projectId);
         JobParameters params = new JobParametersBuilder()
-                .addString("projectId", message.getProjectId().toString())
-                .addString("filePaths", String.join(",", message.getFilePaths()))
+                .addString("projectId", String.valueOf(projectId))
+                .addString("filePaths", String.join(",", filePaths))
                 .addString("time", LocalDateTime.now().toString()) // 保证 job 唯一
-                .addString(JobListener.RESULT_DIR_PATH, Constants.getProcessingFileDirPath(message.getProjectId()))
+                .addString(JobListener.RESULT_FILE_PATH, Constants.getProcessingFileDirPath(projectId) + UUID.randomUUID().toString() + ".json")
                 .toJobParameters();
         JobExecution jobExecution = jobLauncher.run(job, params);
-        log.info("批处理作业执行完成: {}, 状态: {}", message.getProjectId(), jobExecution.getStatus());
+        log.info("批处理作业执行完成: {}, 状态: {}", projectId, jobExecution.getStatus());
         return jobExecution;
     }
 
-    /**
-     * 执行批处理任务 - 异步方式
-     *
-     * @return CompletableFuture<JobExecution> 异步作业执行结果
-     */
-    public CompletableFuture<JobExecution> runBatchJobAsync(BehaviorProcessingTaskMessage message) {
-        return CompletableFuture.supplyAsync(() -> {
-            log.info("开始异步执行批处理作业: {}", message.getProjectId());
-            try {
-                return runBatchJob(message);
-            } catch (Exception e) {
-                log.error("异步执行批处理作业失败: {}", e.getMessage());
-                throw new RuntimeException("异步批处理作业执行失败", e);
-            }
-        });
-    }
+//    /**
+//     * 执行批处理任务 - 异步方式
+//     *
+//     * @return CompletableFuture<JobExecution> 异步作业执行结果
+//     */
+//    public CompletableFuture<JobExecution> runBatchJobAsync(BehaviorProcessingTaskMessage message) {
+//        return CompletableFuture.supplyAsync(() -> {
+//            log.info("开始异步执行批处理作业: {}", message.getProjectId());
+//            try {
+//                return runBatchJob(message);
+//            } catch (Exception e) {
+//                log.error("异步执行批处理作业失败: {}", e.getMessage());
+//                throw new RuntimeException("异步批处理作业执行失败", e);
+//            }
+//        });
+//    }
 
 
 
