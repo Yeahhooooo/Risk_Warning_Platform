@@ -1,0 +1,19 @@
+spring:
+  application:
+    name: risk-warning-bert
+  cloud:
+    nacos:
+      # 禁用服务发现（此服务不需要注册到Nacos）
+      discovery:
+        enabled: false
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
+      # 禁用配置中心（使用本地配置）
+      config:
+        enabled: false
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
+        file-extension: yml
+
