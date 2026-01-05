@@ -12,14 +12,15 @@ import java.util.Optional;
 @Repository
 public interface IndicatorResultRepository extends JpaRepository<IndicatorResult, Long> {
 
-    /**
-     * 获取按 assessmentId 排序最新的一条记录（用于推算下一个 assessmentId）
-     */
-    IndicatorResult findTopByOrderByAssessmentIdDesc();
 
     /**
      * 根据 assessmentId 和 indicatorEsId 查找记录
      */
     Optional<IndicatorResult> findByAssessmentIdAndIndicatorEsId(Long assessmentId, String indicatorEsId);
+
+    /**
+     * 统计指定 assessmentId 的记录数
+     */
+    long countByAssessmentId(Long assessmentId);
 
 }
