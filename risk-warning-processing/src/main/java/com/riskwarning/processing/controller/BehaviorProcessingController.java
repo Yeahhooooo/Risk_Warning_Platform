@@ -1,5 +1,7 @@
 package com.riskwarning.processing.controller;
 
+import com.riskwarning.common.annotation.AuthRequired;
+import com.riskwarning.common.context.UserContext;
 import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.common.result.Result;
 import com.riskwarning.processing.dto.MappingResult;
@@ -53,14 +55,13 @@ public class BehaviorProcessingController {
      * @param projectId 项目ID
      * @return 聚合的评估结果
      */
-    @PostMapping("/process-project/{projectId}")
-    public Result<MappingResult> processProject(@PathVariable Long projectId) {
+    @PostMapping("/process-project/{projectId}/{assessmentId}")
+    @AuthRequired
+    public Result processProject(@PathVariable Long projectId, @PathVariable Long assessmentId) {
         try {
             log.info("开始处理项目的所有行为: projectId={}", projectId);
-            MappingResult result = behaviorProcessingService.processProjectBehaviors(projectId);
-            log.info("项目处理完成: projectId={}, 影响指标数={}", projectId,
-                    result.getIndicatorScores() != null ? result.getIndicatorScores().size() : 0);
-            return Result.success(result);
+            behaviorProcessingService.processProjectBehaviors(UserContext.getUser().getId(), projectId, assessmentId);
+            return Result.success("项目行为处理开始");
         } catch (IllegalArgumentException e) {
             log.warn("处理项目行为时参数错误: projectId={}, error={}", projectId, e.getMessage());
             return Result.fail(400, e.getMessage());

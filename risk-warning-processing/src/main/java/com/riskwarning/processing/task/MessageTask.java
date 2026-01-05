@@ -8,6 +8,7 @@ import com.riskwarning.common.utils.FileUtils;
 import com.riskwarning.common.utils.KafkaUtils;
 import com.riskwarning.common.utils.StringUtils;
 import com.riskwarning.processing.batch.BatchJob;
+import com.riskwarning.processing.service.BehaviorProcessingService;
 import com.riskwarning.processing.service.DocumentProcessingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,8 +32,15 @@ public class MessageTask {
     private DocumentProcessingService documentProcessingService;
 
     @Autowired
-    @Qualifier(value = "TaskThreadPool")
-    private ThreadPoolTaskExecutor threadPoolExecutor;
+    private BehaviorProcessingService behaviorProcessingService;
+
+    @Autowired
+    @Qualifier(value = "FileProcessTaskThreadPool")
+    private ThreadPoolTaskExecutor fileThreadPoolExecutor;
+
+    @Autowired
+    @Qualifier(value = "BehaviorProcessTaskThreadPool")
+    private ThreadPoolTaskExecutor behaviorThreadPoolExecutor;
 
     @Autowired
     private KafkaUtils kafkaUtils;
@@ -54,7 +62,7 @@ public class MessageTask {
                     log.info("│  Project ID: {}", String.format("%-45s", message.getProjectId()) + "│");
                     log.info("└─────────────────────────────────────────────────────────────┘");
 
-                    threadPoolExecutor.execute(() -> {
+                    fileThreadPoolExecutor.execute(() -> {
                         long startTime = System.currentTimeMillis();
                         log.info("✓ [TX Started in Kafka Thread] TX active = {}, thread={}",
                                 TransactionSynchronizationManager.isActualTransactionActive(),
@@ -146,5 +154,37 @@ public class MessageTask {
             throw new RuntimeException(e);
         }
         log.info("========================================");
+    }
+
+    @KafkaListener(topics = "indicator_calculation_tasks", groupId = "indicator-calculation-consumer")
+    public void onMessage(IndicatorCalculationTaskMessage message) {
+        log.info("========================================");
+        log.info("[Kafka消息接收] topic=indicator_calculation_tasks, messageId={}, projectId={}, assessmentId={}",
+                message.getMessageId(), message.getProjectId(), message.getAssessmentId());
+        if (message == null || message.getProjectId() == null || message.getAssessmentId() == null) {
+            log.error("[CRITICAL] 消息参数不完整: message={}", message);
+            return;
+        }
+        log.info("┌─────────────────────────────────────────────────────────────┐");
+        log.info("│  开始指标计算任务                                           │");
+        log.info("│  Project ID: {}", String.format("%-45s", message.getProjectId()) + "│");
+        log.info("│  Assessment ID: {}", String.format("%-42s", message.getAssessmentId()) + "│");
+        log.info("└─────────────────────────────────────────────────────────────┘");
+
+        behaviorThreadPoolExecutor.execute(() -> {
+            try {
+                log.info("▶ 开始行为评估和指标计算...");
+                behaviorProcessingService.processProjectBehaviors(
+                        message.getUserId(),
+                        message.getProjectId(),
+                        message.getAssessmentId()
+                );
+            } catch (Exception e) {
+                log.error("✗ 指标计算任务失败: projectId={}, assessmentId={}, error={}",
+                        message.getProjectId(), message.getAssessmentId(), e.getMessage(), e);
+
+                throw new RuntimeException("指标计算任务失败", e);
+            }
+        });
     }
 }

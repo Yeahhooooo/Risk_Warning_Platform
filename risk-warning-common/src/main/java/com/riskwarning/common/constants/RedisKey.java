@@ -17,5 +17,7 @@ public class RedisKey {
 
     public static final String REDIS_KEY_CONFIRMED_FILE_QUEUE = "file:confirmed:queue";
 
+    public static final String REDIS_KEY_BEHAVIOR_PROCESSING_COUNT = "project:%d:behavior:processing:count";
+
 
 }

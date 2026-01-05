@@ -96,7 +96,7 @@ public final class RegWeightCalculator {
     public static double getTimelinessWeight(Regulation reg, Behavior behavior) {
         if (reg == null || reg.getCreatedAt() == null) return 0.5;
         LocalDateTime created = reg.getCreatedAt();
-        long years = Duration.between(created, behavior.getBehavior_date()).toDays() / 365;
+        long years = Duration.between(created, behavior.getBehaviorDate()).toDays() / 365;
         return years <= 2 ? 0.7 : 0.3;
     }
 }

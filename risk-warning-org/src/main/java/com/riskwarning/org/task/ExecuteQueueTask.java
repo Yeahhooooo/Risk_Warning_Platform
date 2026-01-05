@@ -2,12 +2,14 @@ package com.riskwarning.org.task;
 
 import com.riskwarning.common.constants.Constants;
 import com.riskwarning.common.constants.RedisKey;
+import com.riskwarning.common.enums.AssessmentStatusEnum;
 import com.riskwarning.common.enums.DataSourceTypeEnum;
 import com.riskwarning.common.exception.BusinessException;
 import com.riskwarning.common.message.BehaviorProcessingTaskMessage;
 import com.riskwarning.common.po.file.ProjectFile;
 import com.riskwarning.common.po.assessment.AssessmentResult;
 import com.riskwarning.common.enums.assessment.AssessmentStatus;
+import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.utils.FileUtils;
 import com.riskwarning.common.utils.KafkaUtils;
 import com.riskwarning.common.utils.RedisUtil;
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.annotation.PostConstruct;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Map;
@@ -89,14 +92,14 @@ public class ExecuteQueueTask {
 
 
                             // todo: 创建Assessment实体
-                            AssessmentResult assessment = AssessmentResult.builder()
+                            Assessment assessment = Assessment.builder()
                                     .projectId(uploadConfirmDto.getProjectId())
                                     .assessmentDate(null)
                                     .overallScore(null)
                                     .overallRiskLevel(null)
                                     .details(null)
-                                    .status(AssessmentStatus.PENDING)
-                                    .createdAt(OffsetDateTime.now())
+                                    .status(AssessmentStatusEnum.TO_BE_ASSESSED)
+                                    .createdAt(LocalDateTime.now())
                                     .build();
 
                             assessmentRepository.save(assessment);

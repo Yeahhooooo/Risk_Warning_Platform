@@ -34,14 +34,14 @@ public class JobListener implements JobExecutionListener {
         String resultFilePath = jobParameters.getString(RESULT_FILE_PATH);
         log.info("resultFilePath: {}", resultFilePath);
         // todo: 作业完成后发送消息队列开始指标计算
-        IndicatorCalculationTaskMessage indicatorCalculationTaskMessage = new IndicatorCalculationTaskMessage(
-                StringUtils.generateMessageId(),
-                LocalDateTime.now().toString(),
-                StringUtils.generateTraceId(),
-                null,
-                Long.parseLong(jobParameters.getString("projectId")),
-                null
-        );
-        kafkaUtils.sendMessage(indicatorCalculationTaskMessage);
+//        IndicatorCalculationTaskMessage indicatorCalculationTaskMessage = new IndicatorCalculationTaskMessage(
+//                StringUtils.generateMessageId(),
+//                LocalDateTime.now().toString(),
+//                StringUtils.generateTraceId(),
+//                null,
+//                Long.parseLong(jobParameters.getString("projectId")),
+//                null
+//        );
+//        kafkaUtils.sendMessage(indicatorCalculationTaskMessage);
     }
 }

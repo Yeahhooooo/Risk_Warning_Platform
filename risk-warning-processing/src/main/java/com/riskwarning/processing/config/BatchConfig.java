@@ -5,22 +5,13 @@ import com.riskwarning.processing.batch.*;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.configuration.annotation.*;
-import org.springframework.batch.core.launch.JobLauncher;
-import org.springframework.batch.core.launch.support.SimpleJobLauncher;
-import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
-import javax.sql.DataSource;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
 /**
  * Spring Batch配置类
@@ -52,8 +43,8 @@ public class BatchConfig extends DefaultBatchConfigurer {
     private JobListener jobListener;
 
     @Autowired
-    @Qualifier(value = "TaskThreadPool")
-    private ThreadPoolTaskExecutor threadPoolTaskExecutor;
+    @Qualifier(value = "FileProcessTaskThreadPool")
+    private ThreadPoolTaskExecutor fileThreadPoolTaskExecutor;
 
     @Bean
     public Job job() {
@@ -68,7 +59,7 @@ public class BatchConfig extends DefaultBatchConfigurer {
         return stepBuilderFactory.get("masterStep")
                 .partitioner("workerStep", lineRangePartitioner)
                 .step(workerStep())
-                .taskExecutor(threadPoolTaskExecutor)
+                .taskExecutor(fileThreadPoolTaskExecutor)
                 .gridSize(Runtime.getRuntime().availableProcessors())
                 .build();
     }

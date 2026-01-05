@@ -23,6 +23,12 @@ public class ElasticSearchConfig {
     @Value("${spring.elasticsearch.uris}")
     private String esUris;
 
+    public static final String INDICATOR_INDEX = "t_indicator";
+
+    public static final String BEHAVIOR_INDEX = "t_behavior";
+
+    public static final String REGULATION_INDEX = "t_regulation";
+
     @Bean
     public ElasticsearchClient elasticsearchClient() {
         RestClient restClient = RestClient.builder(HttpHost.create(esUris)).build();

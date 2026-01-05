@@ -23,4 +23,9 @@ public interface IndicatorResultRepository extends JpaRepository<IndicatorResult
      */
     long countByAssessmentId(Long assessmentId);
 
+    /*
+    * 根据indicatorEsI查找记录
+    * */
+    Optional<IndicatorResult> findByIndicatorEsId(String indicatorEsId);
+
 }
