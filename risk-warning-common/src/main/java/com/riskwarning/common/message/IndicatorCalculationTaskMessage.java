@@ -4,6 +4,10 @@ import com.riskwarning.common.enums.KafkaTopic;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TreeMap;
+
 @EqualsAndHashCode(callSuper = true)
 @Data
 public class IndicatorCalculationTaskMessage extends Message{

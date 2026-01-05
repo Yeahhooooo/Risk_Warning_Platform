@@ -33,7 +33,7 @@ public class FileServiceImpl implements FileService {
     @Override
     public String initUpload(Long projectId, String fileHash, Long fileSize, Integer totalChunks, String fileType) {
         String redisFileKey = String.format(RedisKey.REDIS_KEY_FILE, projectId);
-        // todo: 检查该项目是否已经上传过文件进行解析
+        // 检查该项目是否已经上传过文件进行解析
         if(redisUtil.sHasKey(redisFileKey, fileHash)){
             throw new BusinessException("文件已存在，无法重复上传");
         }

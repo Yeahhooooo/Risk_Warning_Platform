@@ -49,7 +49,7 @@ public class AuthAspect {
 
         log.info("AuthAspect: 通过 user_id={} 进行权限验证", userId);
 
-        // TODO: 查询用户信息，放入UserContext
+        // 查询用户信息，放入UserContext
         User user = em.find(User.class, userId);
         if (user == null) {
             log.warn("AuthAspect: user not found for id={}, 禁止访问", userId);

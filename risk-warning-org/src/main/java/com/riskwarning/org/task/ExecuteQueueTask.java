@@ -93,7 +93,7 @@ public class ExecuteQueueTask {
                             fileRepository.save(projectFile);
 
 
-                            // todo: 创建Assessment实体
+                            // 创建Assessment实体
                             Assessment assessment = Assessment.builder()
                                     .projectId(uploadConfirmDto.getProjectId())
                                     .assessmentDate(null)
@@ -105,7 +105,7 @@ public class ExecuteQueueTask {
                                     .build();
 
                             assessmentRepository.save(assessment);
-                            // todo: 发送消息队列
+                            // 发送消息队列
                             BehaviorProcessingTaskMessage behaviorProcessingTaskMessage = new BehaviorProcessingTaskMessage(
                                     StringUtils.generateMessageId(),
                                     String.valueOf(System.currentTimeMillis()),

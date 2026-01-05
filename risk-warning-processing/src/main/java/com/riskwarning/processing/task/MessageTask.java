@@ -61,7 +61,7 @@ public class MessageTask {
                             log.error("Error processing file upload task", e);
                         } finally {
                             log.info("Finished processing file upload for projectId: {}", message.getProjectId());
-                            // todo: 删除中间文件
+                            // 删除中间文件
                             String internalFilePath = Constants.getInternalDirPath(message.getProjectId());
                             FileUtils.delDirectory(internalFilePath);
                         }
