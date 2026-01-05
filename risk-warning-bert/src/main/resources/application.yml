@@ -1,0 +1,45 @@
+server:
+  port: 8090  # Java服务端口，与Python服务(8000)不同
+
+spring:
+  application:
+    name: risk-warning-bert
+  # 禁用数据源自动配置（此服务不需要数据库）
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+  # 禁用 Elasticsearch 自动配置（如果不需要）
+  elasticsearch:
+    uris: http://localhost:9200  # 占位符，避免配置缺失错误
+  # Nacos配置（已禁用，此服务不需要注册到服务发现）
+  cloud:
+    nacos:
+      discovery:
+        enabled: false  # 禁用服务发现
+      config:
+        enabled: false  # 禁用配置中心
+
+# BERT Python服务配置
+bert:
+  # 是否启用Python服务（设为false则不启动Python进程）
+  service:
+    enabled: true
+    port: 8000  # Python服务监听端口
+    host: 0.0.0.0
+    healthcheck:
+      enabled: true
+      interval: 5000  # 健康检查间隔（毫秒）
+      timeout: 30000  # 健康检查超时（毫秒）
+  
+  # Python环境配置
+  python:
+    path: python  # Python命令路径，可以是 python、python3、或完整路径
+    # Python脚本路径（支持多种方式：相对路径、绝对路径、或从项目根目录）
+    script: bert-service/bert_service.py  # 默认：从 risk-warning-bert 目录运行时使用
+    # 如果从项目根目录运行，可以使用: risk-warning-bert/bert-service/bert_service.py
+  
+  # BERT模型配置
+  model:
+    name: bert-base-chinese  # 模型名称
+

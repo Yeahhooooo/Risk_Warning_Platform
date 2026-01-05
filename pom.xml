@@ -48,6 +48,7 @@
         <module>risk-warning-knowledge</module>
         <module>risk-warning-report</module>
         <module>risk-warning-notification</module>
+        <module>risk-warning-bert</module>
     </modules>
 
     <dependencyManagement>
