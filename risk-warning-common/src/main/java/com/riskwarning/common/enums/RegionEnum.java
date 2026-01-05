@@ -7,7 +7,7 @@ public enum RegionEnum {
 
     CHINA("CN", "中国"),
     USA("US", "美国"),
-    EUROPE("EU", "欧洲"),
+    EUROPE("EU", "欧盟"),
     MULTI_REGION("MULTI", "多区域");
 
     private final String code;

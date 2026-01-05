@@ -16,7 +16,7 @@ public class Behavior {
 
     private String id;
 
-    private Long projectId;
+    private Long project_id;
 
     private String description;
 
@@ -28,11 +28,13 @@ public class Behavior {
 
     private String status;
 
-    private Double quantitativeData;
+    private Double quantitative_data;
 
-    private LocalDateTime behaviorDate;
+    private LocalDateTime behavior_date;
 
-    private float[] descriptionVector;
+    private float[] description_vector;
 
     private LocalDateTime createdAt;
+
+
 }
