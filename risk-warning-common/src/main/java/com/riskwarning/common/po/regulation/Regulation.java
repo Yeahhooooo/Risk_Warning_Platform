@@ -36,7 +36,7 @@ public class Regulation {
 
     private Double quantitativeIndicator;
 
-    private float[] fullTextVector;
+    private List<Float> fullTextVector;
 
     private LocalDateTime createdAt;
 }

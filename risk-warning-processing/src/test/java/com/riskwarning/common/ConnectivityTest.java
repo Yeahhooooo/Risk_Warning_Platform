@@ -5,21 +5,29 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.InfoResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import com.riskwarning.common.config.TestConsumer;
+import com.riskwarning.common.enums.indicator.IndicatorRiskStatus;
 import com.riskwarning.common.po.behavior.Behavior;
+import com.riskwarning.common.po.indicator.IndicatorResult;
 import com.riskwarning.common.po.regulation.Regulation;
+import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.processing.ProcessingApplication;
 import com.riskwarning.common.dto.IndicatorResultDTO;
 import com.riskwarning.common.enums.KafkaTopic;
 import com.riskwarning.common.message.*;
 import com.riskwarning.common.po.indicator.Indicator;
 import com.riskwarning.common.utils.RedisUtil;
+import com.riskwarning.processing.repository.AssessmentRepository;
+import com.riskwarning.processing.repository.IndicatorResultRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
+import java.math.BigDecimal;
 import java.sql.Connection;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -46,13 +54,40 @@ public class ConnectivityTest {
     @Autowired
     private TestConsumer testConsumer;
 
+    @Autowired
+    private IndicatorResultRepository indicatorResultRepository;
+
+    @Autowired
+    private AssessmentRepository assessmentRepository;
+
     @Test
     public void testDatabaseConnection() {
         try {
             // 尝试获取PostgreSQL连接以验证连接
-            new ArrayList<IndicatorResultDTO>().clear();
-            Connection dbConnection = dataSource.getConnection();
-            System.out.println("Connected to Database: " + dbConnection.getMetaData().getURL());
+
+
+
+            IndicatorResult ir = IndicatorResult.builder()
+                    .projectId(22L)
+                    .assessmentId(1000L)
+                    .indicatorEsId("indicatorEsId")
+                    .indicatorName("test")
+                    .indicatorLevel(0)
+                    .dimension("test")
+                    .type("test")
+                    .calculatedScore(BigDecimal.ZERO)
+                    .maxPossibleScore(BigDecimal.TEN)
+                    .usedCalculationRuleType("auto")
+                    .calculationDetails("")
+                    .matchedBehaviorsIds(new String[]{})
+                    .riskTriggered(false)
+                    .riskStatus(IndicatorRiskStatus.fromCode("NOT_EVALUATED"))
+                    .calculatedAt(OffsetDateTime.now())
+                    .createdAt(OffsetDateTime.now())
+                    .build();
+            IndicatorResult indicatorResult = indicatorResultRepository.save(ir);
+            System.out
+                    .println("Connected to the database and saved IndicatorResult with ID: " + indicatorResult.getId());
         } catch (Exception e) {
             e.printStackTrace();
             assert false : "Failed to connect to the database";

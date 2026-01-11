@@ -35,4 +35,12 @@ public enum RiskDimensionEnum {
         return null;
     }
 
+    public static RiskDimensionEnum fromValue(String dimension) {
+        for (RiskDimensionEnum dim : RiskDimensionEnum.values()) {
+            if (dim.name().equalsIgnoreCase(dimension)) {
+                return dim;
+            }
+        }
+        return null;
+    }
 }

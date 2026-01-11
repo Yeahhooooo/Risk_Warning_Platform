@@ -13,22 +13,22 @@ public final class VectorUtils {
     /**
      * 计算两向量的余弦相似度，若任意向量为空则返回 0.0
      */
-    public static double cosineSimilarity(float[] a, float[] b) {
+    public static double cosineSimilarity(List<Float> a, List<Float> b) {
         if (a == null || b == null) {
             System.out.println("[CosineSim DEBUG] One or both vectors are null: a=" + (a == null) + ", b=" + (b == null));
             return 0.0;
         }
 
-        if (a.length == 0 || b.length == 0) {
-            System.out.println("[CosineSim DEBUG] One or both vectors are empty: a.length=" + a.length + ", b.length=" + b.length);
+        if (a.isEmpty() || b.isEmpty()) {
+            System.out.println("[CosineSim DEBUG] One or both vectors are empty: a.length=" + a.size() + ", b.length=" + b.size());
             return 0.0;
         }
 
-        int n = Math.min(a.length, b.length);
+        int n = Math.min(a.size(), b.size());
         double dot = 0.0, na = 0.0, nb = 0.0;
         for (int i = 0; i < n; i++) {
-            double va = a[i];
-            double vb = b[i];
+            double va = a.get(i);
+            double vb = b.get(i);
             dot += va * vb;
             na += va * va;
             nb += vb * vb;
@@ -42,7 +42,7 @@ public final class VectorUtils {
 
         // 详细调试信息
         System.out.println(String.format("[CosineSim DEBUG] vecA.length=%d, vecB.length=%d, n=%d, dot=%.6f, normA=%.6f, normB=%.6f, denom=%.6f, similarity=%.6f",
-                a.length, b.length, n, dot, normA, normB, denom, similarity));
+                a.size(), b.size(), n, dot, normA, normB, denom, similarity));
 
         if (denom == 0.0) {
             System.out.println("[CosineSim WARNING] Denominator is 0! At least one vector has zero norm (all zeros)");

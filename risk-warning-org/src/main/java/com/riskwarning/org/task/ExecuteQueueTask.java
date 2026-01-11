@@ -7,8 +7,6 @@ import com.riskwarning.common.enums.DataSourceTypeEnum;
 import com.riskwarning.common.exception.BusinessException;
 import com.riskwarning.common.message.BehaviorProcessingTaskMessage;
 import com.riskwarning.common.po.file.ProjectFile;
-import com.riskwarning.common.po.assessment.AssessmentResult;
-import com.riskwarning.common.enums.assessment.AssessmentStatus;
 import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.utils.FileUtils;
 import com.riskwarning.common.utils.KafkaUtils;

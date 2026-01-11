@@ -1,9 +1,10 @@
-package com.riskwarning.processing.repository;
+package com.riskwarning.report.repository;
 
 import com.riskwarning.common.po.indicator.IndicatorResult;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -23,9 +24,11 @@ public interface IndicatorResultRepository extends JpaRepository<IndicatorResult
      */
     long countByAssessmentId(Long assessmentId);
 
-    /*
-    * 根据indicatorEsI查找记录
-    * */
-    Optional<IndicatorResult> findByAssessmentId(Long assessmentId);
+    /**
+     * 根据 assessmentId 查找所有记录
+     */
+    List<IndicatorResult> findByAssessmentId(Long assessmentId);
+
+
 
 }

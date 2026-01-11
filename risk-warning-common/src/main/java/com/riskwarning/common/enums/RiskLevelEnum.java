@@ -17,6 +17,15 @@ public enum RiskLevelEnum {
         this.description = description;
     }
 
+    public static RiskLevelEnum fromValue(String riskLevel) {
+        for (RiskLevelEnum level : RiskLevelEnum.values()) {
+            if (level.name().equalsIgnoreCase(riskLevel)) {
+                return level;
+            }
+        }
+        return null;
+    }
+
     @Override
     public String toString() {
         return this.code;

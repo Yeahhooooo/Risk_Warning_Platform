@@ -22,15 +22,15 @@ public final class SimilarityCalculator {
      * 公式：score = a * cos(vecB, vecX) + b * Jaccard(tagsB, tagsX)
      * 用于：行为 -> {法规, 指标} 的相似度计算
      */
-    public static double scoreBehaviorToTarget(float[] behaviorVec,
-                                               float[ ] targetVec,
+    public static double scoreBehaviorToTarget(List<Float> behaviorVec,
+                                               List<Float> targetVec,
                                                List<String> behaviorTags,
                                                List<String> targetTags,
                                                double a,
                                                double b) {
         System.out.println("[BehaviorToTarget DEBUG] Starting calculation...");
-        System.out.println("[BehaviorToTarget DEBUG] behaviorVec: " + (behaviorVec == null ? "null" : "length=" + behaviorVec.length));
-        System.out.println("[BehaviorToTarget DEBUG] targetVec: " + (targetVec == null ? "null" : "length=" + targetVec.length));
+        System.out.println("[BehaviorToTarget DEBUG] behaviorVec: " + (behaviorVec == null ? "null" : "length=" + behaviorVec.size()));
+        System.out.println("[BehaviorToTarget DEBUG] targetVec: " + (targetVec == null ? "null" : "length=" + targetVec.size()));
         System.out.println("[BehaviorToTarget DEBUG] behaviorTags: " + behaviorTags);
         System.out.println("[BehaviorToTarget DEBUG] targetTags: " + targetTags);
         System.out.println("[BehaviorToTarget DEBUG] weights: a=" + a + ", b=" + b);
@@ -46,8 +46,8 @@ public final class SimilarityCalculator {
         return clampedScore;
     }
 
-    public static double scoreBehaviorToTargetDefault(float[] behaviorVec,
-                                                      float[] targetVec,
+    public static double scoreBehaviorToTargetDefault(List<Float> behaviorVec,
+                                                      List<Float> targetVec,
                                                       List<String> behaviorTags,
                                                       List<String> targetTags) {
         return scoreBehaviorToTarget(behaviorVec, targetVec, behaviorTags, targetTags,
@@ -58,8 +58,8 @@ public final class SimilarityCalculator {
      * 公式：score = a * cos(vecR, vecI) + b * Jaccard(tagsR, tagsI) + gamma * Jaccard(industryR, industryI)
      * 用于：法规 -> 指标 的相似度计算
      */
-    public static double scoreRegToIndicator(float[] regVec,
-                                             float[] indVec,
+    public static double scoreRegToIndicator(List<Float> regVec,
+                                             List<Float> indVec,
                                              List<String> regTags,
                                              List<String> indTags,
                                              List<String> regIndustry,
@@ -68,8 +68,8 @@ public final class SimilarityCalculator {
                                              double b,
                                              double gamma) {
         System.out.println("[RegToIndicator DEBUG] Starting calculation...");
-        System.out.println("[RegToIndicator DEBUG] regVec: " + (regVec == null ? "null" : "length=" + regVec.length));
-        System.out.println("[RegToIndicator DEBUG] indVec: " + (indVec == null ? "null" : "length=" + indVec.length));
+        System.out.println("[RegToIndicator DEBUG] regVec: " + (regVec == null ? "null" : "length=" + regVec.size()));
+        System.out.println("[RegToIndicator DEBUG] indVec: " + (indVec == null ? "null" : "length=" + indVec.size()));
         System.out.println("[RegToIndicator DEBUG] regTags: " + regTags);
         System.out.println("[RegToIndicator DEBUG] indTags: " + indTags);
         System.out.println("[RegToIndicator DEBUG] regIndustry: " + regIndustry);
@@ -88,8 +88,8 @@ public final class SimilarityCalculator {
         return clampedScore;
     }
 
-    public static double scoreRegToIndicatorDefault(float[] regVec,
-                                                    float[] indVec,
+    public static double scoreRegToIndicatorDefault(List<Float> regVec,
+                                                    List<Float> indVec,
                                                     List<String> regTags,
                                                     List<String> indTags,
                                                     List<String> regIndustry,

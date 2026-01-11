@@ -29,6 +29,8 @@ public class ElasticSearchConfig {
 
     public static final String REGULATION_INDEX = "t_regulation";
 
+    public static final String RISK_INDEX = "t_risk";
+
     @Bean
     public ElasticsearchClient elasticsearchClient() {
         RestClient restClient = RestClient.builder(HttpHost.create(esUris)).build();

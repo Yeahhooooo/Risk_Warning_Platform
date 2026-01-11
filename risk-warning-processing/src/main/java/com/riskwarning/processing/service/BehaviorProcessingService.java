@@ -12,7 +12,6 @@ import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.common.po.indicator.Indicator;
 import com.riskwarning.common.po.indicator.IndicatorResult;
 import com.riskwarning.common.po.regulation.Regulation;
-import com.riskwarning.common.po.assessment.AssessmentResult;
 import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.utils.KafkaUtils;
 import com.riskwarning.common.utils.RedisUtil;
@@ -51,7 +50,16 @@ import java.util.concurrent.*;
 public class BehaviorProcessingService {
 
     private static final double REG_APPLICABILITY_THRESHOLD = 0.15;
+
     private static final double REG_TO_INDICATOR_THRESHOLD = 0.2;
+
+    private static final String BEHAVIOR_VECTOR_FIELD = "description_vector";
+
+    private static final String INDICATOR_VECTOR_FIELD = "name_vector";
+
+    private static final String REGULATION_VECTOR_FIELD = "full_text_vector";
+
+    private static final Integer CANDIDATE_FETCH_SIZE = 200;
 
 
     // 新增：注入 ElasticsearchClient 与索引名配置
@@ -183,7 +191,6 @@ public class BehaviorProcessingService {
                             Thread.currentThread().getName());
 
                     // 并发进行计算：获取候选指标和法规
-                    // TODO: 目前ES查询没有使用向量相似度计算
                     List<Scored<Indicator>> indicators = fetchTopIndicators(behavior, 6);
                     List<Scored<Regulation>> regulations = fetchTopRegulations(behavior, 10);
 
@@ -275,7 +282,7 @@ public class BehaviorProcessingService {
             double absoluteScore = normalizedScore * maxPossible;
 
             // 使用 JPQL 查询
-            Optional<IndicatorResult> alIndicatorResult = indicatorResultRepository.findByIndicatorEsId(indicatorEsId);
+            Optional<IndicatorResult> alIndicatorResult = indicatorResultRepository.findByAssessmentIdAndIndicatorEsId(assessmentId, indicatorEsId);
 
             if (alIndicatorResult.isPresent()) {
                 IndicatorResult existing = alIndicatorResult.get();
@@ -332,7 +339,6 @@ public class BehaviorProcessingService {
     }
 
     private void completeAssessmentIfNeeded(Long userId, Long projectId, Long assessmentId) {
-        updateAssessmentStatus(assessmentId, AssessmentStatusEnum.ASSESSED);
         AssessmentCompletedEventMessage assessmentCompletedEventMessage = new AssessmentCompletedEventMessage(
                 StringUtils.generateMessageId(),
                 String.valueOf(System.currentTimeMillis()),
@@ -341,6 +347,7 @@ public class BehaviorProcessingService {
                 projectId,
                 assessmentId
         );
+        redisUtil.del(String.format(RedisKey.REDIS_KEY_BEHAVIOR_PROCESSING_COUNT, projectId));
         kafkaUtils.sendMessage(assessmentCompletedEventMessage);
     }
 
@@ -369,13 +376,13 @@ public class BehaviorProcessingService {
             if (reg == null) continue;
 
             // 获取向量和标签数据用于本地相似度计算
-            float[] behaviorVec = (behavior != null) ? behavior.getDescriptionVector() : null;
+            List<Float> behaviorVec = (behavior != null) ? behavior.getDescriptionVector() : null;
 
-            float[] regVec = reg.getFullTextVector();
+            List<Float> regVec = reg.getFullTextVector();
             List<String> behaviorTags = (behavior != null) ? behavior.getTags() : null;
             List<String> regTags = reg.getTags();
 
-            boolean hasBehaviorVec = (behaviorVec != null && behaviorVec.length > 0);
+            boolean hasBehaviorVec = (behaviorVec != null && !behaviorVec.isEmpty());
 
             // 获取ES分数（如果有的话）
             double esScore = sreg.getSim();
@@ -408,7 +415,7 @@ public class BehaviorProcessingService {
                 if (ind == null || ind.getId() == null) continue;
 
                 // 获取指标向量
-                float[] indVec = ind.getNameVector();
+                List<Float> indVec = ind.getNameVector();
 
                 // 计算法规与指标的相似度
                 double regIndSim = SimilarityCalculator.scoreRegToIndicatorDefault(
@@ -804,10 +811,14 @@ public class BehaviorProcessingService {
             SearchResponse<Indicator> resp = esClient.search(s -> s
                             .index(ElasticSearchConfig.INDICATOR_INDEX)
                             .size(candidateSize)
-                            .query(q -> q.multiMatch(mm -> mm
-                                    .fields(Arrays.asList("name", "description", "tags"))
-                                    .query(text)
-                            ))
+                            .knn(k -> k
+                                    .field(INDICATOR_VECTOR_FIELD)
+                                    .queryVector(
+                                            behavior.getDescriptionVector()
+                                    )
+                                    .k(candidateSize)
+                                    .numCandidates(CANDIDATE_FETCH_SIZE)
+                            )
                             // 移除source过滤器，获取完整的指标数据（包括向量）
                     , Indicator.class);
 
@@ -829,16 +840,18 @@ public class BehaviorProcessingService {
     // 新增：从 ES 拉取候选法规
     public List<Scored<Regulation>> fetchTopRegulations(Behavior behavior, int candidateSize) {
         try {
-            String text = (behavior.getDescription() == null ? "" : behavior.getDescription())
-                    + " " + (behavior.getTags() == null ? "" : String.join(" ", behavior.getTags()));
 
             SearchResponse<Regulation> resp = esClient.search(s -> s
                             .index(ElasticSearchConfig.REGULATION_INDEX)
                             .size(candidateSize)
-                            .query(q -> q.multiMatch(mm -> mm
-                                    .fields(Arrays.asList("title", "full_text", "tags"))
-                                    .query(text)
-                            ))
+                            .knn(k -> k
+                                    .field(REGULATION_VECTOR_FIELD)
+                                    .queryVector(
+                                            behavior.getDescriptionVector()
+                                    )
+                                    .k(candidateSize)
+                                    .numCandidates(CANDIDATE_FETCH_SIZE)
+                            )
                     , Regulation.class);
 
             List<Scored<Regulation>> out = new ArrayList<>();

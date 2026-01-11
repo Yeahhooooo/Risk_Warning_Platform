@@ -181,9 +181,9 @@
           "analyzer": "ik_max_word"
         },
         "risk_level": { "type": "keyword" },
-        "probability": { "type": "integer" },
-        "impact": { "type": "integer" },
-        "detectability": { "type": "integer" },
+        "probability": { "type": "double" },
+        "impact": { "type": "double" },
+        "detectability": { "type": "double" },
         "status": { "type": "keyword" },
         "responsible_party": { "type": "keyword" },
         "affected_objects": { "type": "keyword" },
@@ -191,14 +191,6 @@
         "countermeasures": {
           "type": "text",
           "analyzer": "ik_max_word"
-        },
-        "triggered_by_rule": {
-          "type": "object",
-          "properties": {
-            "rule_id": { "type": "keyword" },
-            "rule_description": { "type": "text" },
-            "trigger_condition": { "type": "text" }
-          }
         },
         "related_indicators": {
           "type": "nested",
