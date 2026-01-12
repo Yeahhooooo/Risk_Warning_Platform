@@ -165,54 +165,93 @@
     }
   },
   "t_risk": {
-    "mappings": {
-      "properties": {
-        "id": { "type": "keyword" },
-        "project_id": { "type": "long" },
-        "assessment_id": { "type": "long" },
-        "name": {
-          "type": "text",
-          "analyzer": "ik_max_word",
-          "fields": { "keyword": { "type": "keyword" } }
-        },
-        "dimension": { "type": "keyword" },
-        "description": {
-          "type": "text",
-          "analyzer": "ik_max_word"
-        },
-        "risk_level": { "type": "keyword" },
-        "probability": { "type": "double" },
-        "impact": { "type": "double" },
-        "detectability": { "type": "double" },
-        "status": { "type": "keyword" },
-        "responsible_party": { "type": "keyword" },
-        "affected_objects": { "type": "keyword" },
-        "impact_scope": { "type": "keyword" },
-        "countermeasures": {
-          "type": "text",
-          "analyzer": "ik_max_word"
-        },
-        "related_indicators": {
-          "type": "nested",
+        "mappings": {
           "properties": {
-            "indicator_id": { "type": "keyword" },
-            "indicator_name": { "type": "text" },
-            "score": { "type": "double" },
-            "threshold": { "type": "double" },
-            "is_primary_trigger": { "type": "boolean" }
+            "id": { "type": "keyword" },
+            "project_id": { "type": "long" },
+            "assessment_id": { "type": "long" },
+            "name": {
+              "type": "text",
+              "analyzer": "ik_max_word",
+              "fields": { "keyword": { "type": "keyword" } }
+            },
+            "dimension": { "type": "keyword" },
+            "description": {
+              "type": "text",
+              "analyzer": "ik_max_word"
+            },
+            "risk_level": { "type": "keyword" },
+            "probability": { "type": "double" },
+            "impact": { "type": "double" },
+            "detectability": { "type": "double" },
+            "status": { "type": "keyword" },
+            "responsible_party": { "type": "keyword" },
+            "affected_objects": { "type": "keyword" },
+            "impact_scope": { "type": "keyword" },
+            "countermeasures": {
+              "type": "text",
+              "analyzer": "ik_max_word"
+            },
+            "related_indicators": {
+              "type": "nested",
+              "properties": {
+                "indicator_id": {
+                  "type": "keyword"
+                },
+                "indicator_name": {
+                  "type": "text",
+                  "analyzer": "ik_max_word",
+                  "fields": {
+                    "keyword": { "type": "keyword" }
+                  }
+                },
+                "score": {
+                  "type": "double"
+                },
+                "max_score": {
+                  "type": "double"
+                },
+                "is_primary_trigger": {
+                  "type": "boolean"
+                },
+                "related_behaviors": {
+                  "type": "nested",
+                  "properties": {
+                    "project_id": {
+                      "type": "long"
+                    },
+                    "description": {
+                      "type": "text",
+                      "analyzer": "ik_max_word"
+                    },
+                    "related_regulations": {
+                      "type": "nested",
+                      "properties": {
+                        "regulation_id": {
+                          "type": "keyword"
+                        },
+                        "regulation_name": {
+                          "type": "text",
+                          "analyzer": "ik_max_word",
+                          "fields": {
+                            "keyword": { "type": "keyword" }
+                          }
+                        },
+                        "violation_type": {
+                          "type": "keyword"
+                        },
+                        "compliance_requirement": {
+                          "type": "text",
+                          "analyzer": "ik_max_word"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "created_at": { "type": "date" }
           }
-        },
-        "related_regulations": {
-          "type": "nested",
-          "properties": {
-            "regulation_id": { "type": "keyword" },
-            "regulation_name": { "type": "text" },
-            "violation_type": { "type": "keyword" },
-            "compliance_requirement": { "type": "text" }
-          }
-        },
-        "created_at": { "type": "date" }
-      }
     }
   }
 }

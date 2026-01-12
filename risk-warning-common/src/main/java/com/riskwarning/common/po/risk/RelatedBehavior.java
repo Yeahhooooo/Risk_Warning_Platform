@@ -6,16 +6,17 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class RelatedRegulation {
-    private String regulationId;
+public class RelatedBehavior {
 
-    private String regulationName;
+    private Long projectId;
 
-    private String violationType;
+    private String description;
 
-    private String complianceRequirement;
+    private List<RelatedRegulation> relatedRegulations;
 }

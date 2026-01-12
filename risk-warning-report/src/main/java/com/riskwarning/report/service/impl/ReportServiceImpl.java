@@ -4,15 +4,18 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
+import com.alibaba.fastjson2.JSON;
 import com.riskwarning.common.config.ElasticSearchConfig;
 import com.riskwarning.common.enums.RiskDimensionEnum;
-import com.riskwarning.common.enums.RiskLevelEnum;
+import com.riskwarning.common.enums.risk.RiskLevelEnum;
 import com.riskwarning.common.exception.BusinessException;
 import com.riskwarning.common.po.indicator.IndicatorResult;
 import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.po.risk.Risk;
+import com.riskwarning.report.entity.vo.AssessmentGeneralDetails;
 import com.riskwarning.report.entity.vo.general.*;
 import com.riskwarning.report.entity.vo.indicator.IndicatorDistributionVO;
+import com.riskwarning.report.entity.vo.indicator.ScoreRatioDistributionItemVO;
 import com.riskwarning.report.entity.vo.risk.RiskVO;
 import com.riskwarning.report.repository.AssessmentRepository;
 import com.riskwarning.report.repository.IndicatorResultRepository;
@@ -48,21 +51,100 @@ public class ReportServiceImpl implements ReportService {
         if(assessment == null) {
             throw new BusinessException("Assessment not found");
         }
-        // TODO: 检查assessment的detail属性是否已经存在indicatorDistribution信息，若存在则直接反序列化返回，避免重复计算
+        // 检查assessment的detail属性是否已经存在indicatorDistribution信息，若存在则直接反序列化返回，避免重复计算
+        if(assessment.getDetails() != null && !assessment.getDetails().isEmpty()) {
+            try{
+                AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(JSON.toJSONString(assessment.getDetails()), AssessmentGeneralDetails.class);
+                return assessmentGeneralDetails.getIndicatorDistributionVO();
+            } catch (Exception e) {
+                log.error("评估报告已存在详细信息但反序列化失败", e);
+                throw new BusinessException("评估报告已存在详细信息但反序列化失败");
+            }
+
+        }
         // TODO: 目前写在内存中进行聚合，之后可能考虑使用数据库进行聚合计算
         List<IndicatorResult> indicatorResults = indicatorResultRepository.findByAssessmentId(assessmentId);
-
         IndicatorDistributionVO indicatorDistributionVO = new IndicatorDistributionVO();
         indicatorDistributionVO.setAssessmentId(assessmentId);
         indicatorDistributionVO.setRiskDimensionEnum(null);
         indicatorDistributionVO.setTotalScore(assessment.getOverallScore());
         indicatorDistributionVO.setTotalCount(indicatorResults.size());
+        indicatorDistributionVO.setSafeCount(0);
+        indicatorDistributionVO.setRiskTriggeredCount(0);
         indicatorDistributionVO.setAssessmentTime(assessment.getAssessmentDate());
         indicatorDistributionVO.setScoreDistributions(new ArrayList<>());
         indicatorDistributionVO.setDimensionDistributions(new HashMap<>());
 
-        for(IndicatorResult indicatorResult : indicatorResults) {
+        for(int i = 0;i < 4;i++){
+            indicatorDistributionVO.getScoreDistributions().add(
+                    ScoreRatioDistributionItemVO.builder()
+                            .startScoreRatio(i * 0.25)
+                            .endScoreRatio((i + 1) * 0.25)
+                            .ratio(0.0)
+                            .totalScore(0.0)
+                            .totalCount(0)
+                            .riskTriggeredCount(0)
+                            .safeCount(0)
+                            .build()
+            );
+        }
 
+        for(IndicatorResult indicatorResult : indicatorResults) {
+            // 计算分数分布
+            if(indicatorResult.getRiskTriggered()){
+                indicatorDistributionVO.setRiskTriggeredCount(indicatorDistributionVO.getRiskTriggeredCount() + 1);
+            } else {
+                indicatorDistributionVO.setSafeCount(indicatorDistributionVO.getSafeCount() + 1);
+            }
+            // 计算总体分数分布
+            int targetIndex = (int)Math.min(3, Math.floor((indicatorResult.getCalculatedScore() /
+                    (indicatorResult.getMaxPossibleScore() == 0.0 ? indicatorResult.getCalculatedScore() : indicatorResult.getMaxPossibleScore())) / 0.25));
+            ScoreRatioDistributionItemVO scoreRatioDistributionItemVO = indicatorDistributionVO.getScoreDistributions().get(targetIndex);
+            scoreRatioDistributionItemVO.setTotalCount(scoreRatioDistributionItemVO.getTotalCount() + 1);
+            scoreRatioDistributionItemVO.setTotalScore(scoreRatioDistributionItemVO.getTotalScore() + indicatorResult.getCalculatedScore());
+            if(indicatorResult.getRiskTriggered()){
+                scoreRatioDistributionItemVO.setRiskTriggeredCount(scoreRatioDistributionItemVO.getRiskTriggeredCount() + 1);
+            } else {
+                scoreRatioDistributionItemVO.setSafeCount(scoreRatioDistributionItemVO.getSafeCount() + 1);
+            }
+            //计算各维度
+            IndicatorDistributionVO dimensionVO = indicatorDistributionVO.getDimensionDistributions()
+                    .getOrDefault(RiskDimensionEnum.fromValue(indicatorResult.getDimension()),
+                            IndicatorDistributionVO.builder()
+                                    .riskDimensionEnum(RiskDimensionEnum.fromValue(indicatorResult.getDimension()))
+                                    .assessmentId(assessmentId)
+                                    .assessmentTime(assessment.getAssessmentDate())
+                                    .totalScore(0.0)
+                                    .totalCount(0)
+                                    .riskTriggeredCount(0)
+                                    .safeCount(0)
+                                    .assessmentTime(assessment.getAssessmentDate())
+                                    .scoreDistributions(new ArrayList<>())
+                                    .dimensionDistributions(new HashMap<>())
+                                    .build());
+            for(int i = 0;i < 4;i++){
+                if(dimensionVO.getScoreDistributions().size() < 4){
+                    dimensionVO.getScoreDistributions().add(
+                            ScoreRatioDistributionItemVO.builder()
+                                    .startScoreRatio(i * 0.25)
+                                    .endScoreRatio((i + 1) * 0.25)
+                                    .ratio(0.0)
+                                    .totalScore(0.0)
+                                    .totalCount(0)
+                                    .riskTriggeredCount(0)
+                                    .safeCount(0)
+                                    .build()
+                    );
+                }
+            }
+            dimensionVO.setTotalCount(dimensionVO.getTotalCount() + 1);
+            dimensionVO.setTotalScore(dimensionVO.getTotalScore() + indicatorResult.getCalculatedScore());
+            if(indicatorResult.getRiskTriggered()){
+                dimensionVO.setRiskTriggeredCount(dimensionVO.getRiskTriggeredCount() + 1);
+            } else {
+                dimensionVO.setSafeCount(dimensionVO.getSafeCount() + 1);
+            }
+            indicatorDistributionVO.getDimensionDistributions().put(RiskDimensionEnum.fromValue(indicatorResult.getDimension()), dimensionVO);
         }
 
         return indicatorDistributionVO;
@@ -87,7 +169,17 @@ public class ReportServiceImpl implements ReportService {
             throw new BusinessException("Assessment not found");
         }
 
-        // TODO: 检查assessment的detail属性是否已经存在general信息，若存在则直接反序列化返回，避免重复计算
+        // 检查assessment的detail属性是否已经存在general信息，若存在则直接反序列化返回，避免重复计算
+        if(assessment.getDetails() != null && !assessment.getDetails().isEmpty()) {
+            try{
+                AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(JSON.toJSONString(assessment.getDetails()), AssessmentGeneralDetails.class);
+                return assessmentGeneralDetails.getAssessmentDetailVO();
+            } catch (Exception e) {
+                log.error("评估报告已存在详细信息但反序列化失败", e);
+                throw new BusinessException("评估报告已存在详细信息但反序列化失败");
+            }
+
+        }
 
         AssessmentDetailVO assessmentDetailVO = new AssessmentDetailVO();
         assessmentDetailVO.setProjectId(assessment.getProjectId());
@@ -95,41 +187,38 @@ public class ReportServiceImpl implements ReportService {
         assessmentDetailVO.setAssessmentDate(assessment.getAssessmentDate());
         assessmentDetailVO.setOverallResult(OverallResult.builder()
                 .overallScore(assessment.getOverallScore())
+                .overallRiskLevel(assessment.getOverallRiskLevel())
+                .status(assessment.getStatus())
                 .build()
         );
-        assessmentDetailVO.setRiskSummary(RiskSummary.builder()
-                .build()
-        );
-        assessmentDetailVO.setIndicatorOverview(IndicatorOverview.builder()
-
-                .build()
-        );
+        assessmentDetailVO.setRiskSummary(new RiskSummary());
+        assessmentDetailVO.setIndicatorOverview(new IndicatorOverview());
         assessmentDetailVO.setDimensionRiskDistribution(new HashMap<>());
         for(RiskDimensionEnum riskDimensionEnum : RiskDimensionEnum.values()) {
             assessmentDetailVO.getDimensionRiskDistribution().put(riskDimensionEnum, new DimensionRiskDistribution());
         }
         List<Risk> risks = fetchRisksFromES(assessmentId, null, null);
+        assessmentDetailVO.getIndicatorOverview().setBehaviorIndicators(risks.size());
         for(Risk risk : risks) {
             RiskDimensionEnum dimensionEnum = RiskDimensionEnum.fromValue(risk.getDimension());
-            RiskLevelEnum riskLevelEnum = RiskLevelEnum.fromValue(risk.getRiskLevel());
-            if(dimensionEnum != null && riskLevelEnum != null) {
-                DimensionRiskDistribution distribution = assessmentDetailVO.getDimensionRiskDistribution().get(dimensionEnum);
-                distribution.setRiskCount(distribution.getRiskCount() + 1);
-                switch (riskLevelEnum) {
-                    case LOW_RISK:
-                        distribution.setLowRiskCount(distribution.getLowRiskCount() + 1);
-                        break;
-                    case MEDIUM_RISK:
-                        distribution.setMediumRiskCount(distribution.getMediumRiskCount() + 1);
-                        break;
-                    case HIGH_RISK:
-                        distribution.setHighRiskCount(distribution.getHighRiskCount() + 1);
-                        break;
-                    default:
-                        log.error("riskLevelEnum error, unexpected value: {}", riskLevelEnum);
-                }
-            } else {
-                log.warn("Unknown risk dimension: {} or risk level: {}", risk.getDimension(), risk.getRiskLevel());
+            RiskLevelEnum riskLevelEnum = risk.getRiskLevel();
+            DimensionRiskDistribution distribution = assessmentDetailVO.getDimensionRiskDistribution().get(dimensionEnum);
+            distribution.setRiskCount(distribution.getRiskCount() + 1);
+            switch (riskLevelEnum) {
+                case LOW_RISK:
+                    assessmentDetailVO.getRiskSummary().setLowRiskCount(distribution.getLowRiskCount() + 1);
+                    distribution.setLowRiskCount(distribution.getLowRiskCount() + 1);
+                    break;
+                case MEDIUM_RISK:
+                    assessmentDetailVO.getRiskSummary().setMediumRiskCount(distribution.getMediumRiskCount() + 1);
+                    distribution.setMediumRiskCount(distribution.getMediumRiskCount() + 1);
+                    break;
+                case HIGH_RISK:
+                    assessmentDetailVO.getRiskSummary().setHighRiskCount(distribution.getHighRiskCount() + 1);
+                    distribution.setHighRiskCount(distribution.getHighRiskCount() + 1);
+                    break;
+                default:
+                    log.error("riskLevelEnum error, unexpected value: {}", riskLevelEnum);
             }
         }
 
@@ -186,4 +275,5 @@ public class ReportServiceImpl implements ReportService {
     }
 
     // TODO: 根据某个指标结果查询相关风险，风险对应法规的详细信息接口
+
 }

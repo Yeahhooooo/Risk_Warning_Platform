@@ -1,12 +1,20 @@
 package com.riskwarning.common.po.risk;
 
 
+import com.riskwarning.common.enums.risk.RiskLevelEnum;
+import com.riskwarning.common.enums.risk.RiskStatusEnum;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Risk {
 
     private String id;
@@ -21,7 +29,7 @@ public class Risk {
 
     private String description;
 
-    private String riskLevel;
+    private RiskLevelEnum riskLevel;
 
     private double probability;
 
@@ -29,7 +37,7 @@ public class Risk {
 
     private double detectability;
 
-    private String status;
+    private RiskStatusEnum status;
 
     private String responsibleParty;
 
@@ -40,8 +48,6 @@ public class Risk {
     private String countermeasures;
 
     private List<RelatedIndicator> relatedIndicators;
-
-    private List<RelatedRegulation> relatedRegulations;
 
     private LocalDateTime createAt;
 }

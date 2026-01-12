@@ -1,5 +1,7 @@
 package com.riskwarning.processing.dto;
 
+import com.riskwarning.common.po.indicator.IndicatorResult;
+import com.riskwarning.common.po.risk.RelatedIndicator;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,7 +16,6 @@ import java.util.Map;
 @AllArgsConstructor
 public class MappingResult {
     private String behaviorId;
-    private Map<String, Double> indicatorScores;
-    private Map<String, List<String>> indicatorInfluencingRegulations;
+    private Map<String, RelatedIndicator> relatedIndicators;
     private List<String> warnings;
 }

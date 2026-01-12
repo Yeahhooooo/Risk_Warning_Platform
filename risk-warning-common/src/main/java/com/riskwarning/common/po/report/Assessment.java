@@ -2,8 +2,7 @@ package com.riskwarning.common.po.report;
 
 
 import com.riskwarning.common.enums.AssessmentStatusEnum;
-import com.riskwarning.common.enums.RiskLevelEnum;
-import com.riskwarning.common.enums.project.ProjectStatus;
+import com.riskwarning.common.enums.risk.RiskLevelEnum;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

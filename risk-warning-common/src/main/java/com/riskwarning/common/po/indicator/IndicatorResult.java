@@ -15,6 +15,7 @@ import com.riskwarning.common.utils.PostgreSQLEnumType;
 import javax.persistence.*;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 
 /**
@@ -65,11 +66,11 @@ public class IndicatorResult implements Serializable {
 
     // calculated_score NUMERIC NOT NULL
     @Column(name = "calculated_score", nullable = false)
-    private BigDecimal calculatedScore;
+    private Double calculatedScore;
 
     // max_possible_score NUMERIC NOT NULL DEFAULT 100
     @Column(name = "max_possible_score", nullable = false)
-    private BigDecimal maxPossibleScore;
+    private Double maxPossibleScore;
 
     // used_calculation_rule_type TEXT NOT NULL
     @Column(name = "used_calculation_rule_type", nullable = false)
@@ -78,12 +79,7 @@ public class IndicatorResult implements Serializable {
     // calculation_details JSONB（以结构化 JSON 存储）
     @Type(type = "jsonb")
     @Column(name = "calculation_details", columnDefinition = "jsonb")
-    private String calculationDetails;
-
-    // matched_behaviors_ids TEXT[]
-    @Column(name = "matched_behaviors_ids", columnDefinition = "text[]")
-    @Type(type = "string-array")
-    private String[] matchedBehaviorsIds;
+    private IndicatorResultDetail calculationDetails;
 
     // risk_triggered BOOLEAN NOT NULL DEFAULT FALSE
     @Column(name = "risk_triggered", nullable = false)
@@ -97,9 +93,9 @@ public class IndicatorResult implements Serializable {
 
     // calculated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     @Column(name = "calculated_at", nullable = false)
-    private OffsetDateTime calculatedAt;
+    private LocalDateTime calculatedAt;
 
     // created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     @Column(name = "created_at", nullable = false)
-    private OffsetDateTime createdAt;
+    private LocalDateTime createdAt;
 }

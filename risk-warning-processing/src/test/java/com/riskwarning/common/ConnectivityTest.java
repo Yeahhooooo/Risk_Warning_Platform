@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.sql.Connection;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -75,15 +76,14 @@ public class ConnectivityTest {
                     .indicatorLevel(0)
                     .dimension("test")
                     .type("test")
-                    .calculatedScore(BigDecimal.ZERO)
-                    .maxPossibleScore(BigDecimal.TEN)
+                    .calculatedScore(0.0)
+                    .maxPossibleScore(0.0)
                     .usedCalculationRuleType("auto")
-                    .calculationDetails("")
-                    .matchedBehaviorsIds(new String[]{})
+                    .calculationDetails(null)
                     .riskTriggered(false)
                     .riskStatus(IndicatorRiskStatus.fromCode("NOT_EVALUATED"))
-                    .calculatedAt(OffsetDateTime.now())
-                    .createdAt(OffsetDateTime.now())
+                    .calculatedAt(LocalDateTime.now())
+                    .createdAt(LocalDateTime.now())
                     .build();
             IndicatorResult indicatorResult = indicatorResultRepository.save(ir);
             System.out

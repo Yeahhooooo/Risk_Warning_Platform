@@ -11,8 +11,12 @@ import com.riskwarning.common.message.AssessmentCompletedEventMessage;
 import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.common.po.indicator.Indicator;
 import com.riskwarning.common.po.indicator.IndicatorResult;
+import com.riskwarning.common.po.indicator.IndicatorResultDetail;
 import com.riskwarning.common.po.regulation.Regulation;
 import com.riskwarning.common.po.report.Assessment;
+import com.riskwarning.common.po.risk.RelatedBehavior;
+import com.riskwarning.common.po.risk.RelatedIndicator;
+import com.riskwarning.common.po.risk.RelatedRegulation;
 import com.riskwarning.common.utils.KafkaUtils;
 import com.riskwarning.common.utils.RedisUtil;
 import com.riskwarning.common.utils.StringUtils;
@@ -41,6 +45,7 @@ import co.elastic.clients.elasticsearch.core.search.Hit;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.*;
@@ -262,17 +267,17 @@ public class BehaviorProcessingService {
         MappingResult mr = calcResult.result;
 
 
-        if (mr == null || mr.getIndicatorScores() == null || mr.getIndicatorScores().isEmpty()) {
+        if (mr == null || mr.getRelatedIndicators() == null || mr.getRelatedIndicators().isEmpty()) {
             log.debug("[No Scores to Save] behaviorId={}", behaviorId);
             return;
         }
 
-        Map<String, Double> scores = mr.getIndicatorScores();
-        Map<String, List<String>> indicatorToRegs = mr.getIndicatorInfluencingRegulations();
+        Map<String, RelatedIndicator> relatedIndicators = mr.getRelatedIndicators();
 
-        for (Map.Entry<String, Double> e : scores.entrySet()) {
+        for (Map.Entry<String, RelatedIndicator> e : relatedIndicators.entrySet()) {
             String indicatorEsId = e.getKey();
-            double normalizedScore = e.getValue() == null ? 0.0 : e.getValue();
+            RelatedIndicator ri = e.getValue();
+            double normalizedScore = ri.getScore();
 
             IndicatorMetadataDTO metadata = indicatorMetadata.get(indicatorEsId);
             double maxPossible = 100.0;
@@ -286,35 +291,28 @@ public class BehaviorProcessingService {
 
             if (alIndicatorResult.isPresent()) {
                 IndicatorResult existing = alIndicatorResult.get();
-                String[] existingBehaviorIds = existing.getMatchedBehaviorsIds();
+                IndicatorResultDetail indicatorResultDetail = existing.getCalculationDetails();
 
-                boolean alreadyContains = existingBehaviorIds != null &&
-                        Arrays.asList(existingBehaviorIds).contains(behaviorId);
-                if (!alreadyContains) {
-                    double existingScore = existing.getCalculatedScore().doubleValue();
-                    int existingCount = existingBehaviorIds != null ? existingBehaviorIds.length : 0;
-                    double averagedScore = (existingScore * existingCount + absoluteScore) / (existingCount + 1);
-
-                    Set<String> mergedBehaviorIds = new HashSet<>();
-                    if (existingBehaviorIds != null) {
-                        mergedBehaviorIds.addAll(Arrays.asList(existingBehaviorIds));
+                boolean alreadyContains = false;
+                for(RelatedIndicator relatedIndicator : indicatorResultDetail.getRelatedIndicators()) {
+                    if(relatedIndicator.getIndicatorId().equals(behaviorId)) {
+                        alreadyContains = true;
+                        break;
                     }
-                    mergedBehaviorIds.add(behaviorId);
-                    existing.setCalculatedScore(BigDecimal.valueOf(averagedScore));
-                    existing.setMatchedBehaviorsIds(mergedBehaviorIds.toArray(new String[0]));
-                    existing.setCalculatedAt(OffsetDateTime.now());
-                    ObjectNode details = buildCalculationDetails(averagedScore / maxPossible,
-                            indicatorToRegs != null ? indicatorToRegs.get(indicatorEsId) : null);
-                    details.put("absoluteScore", averagedScore);
-                    details.put("averagedFrom", "merged");
-                    existing.setCalculationDetails(details.toString());
+                }
+                if (!alreadyContains) {
+                    double existingScore = existing.getCalculatedScore();
+                    int existingCount = indicatorResultDetail.getRelatedIndicators().size();
+                    double averagedScore = (existingScore * existingCount + absoluteScore) / (existingCount + 1);
+                    existing.setCalculatedScore(averagedScore);
+                    existing.setCalculatedAt(LocalDateTime.now());
+                    indicatorResultDetail.getRelatedIndicators().add(ri);
+                    existing.setCalculationDetails(indicatorResultDetail);
                     indicatorResultRepository.save(existing);
+
+                    // TODO: 这里需要通过CAS控制并发更新丢失问题
                 }
             } else {
-                ObjectNode details = buildCalculationDetails(normalizedScore,
-                        indicatorToRegs != null ? indicatorToRegs.get(indicatorEsId) : null);
-                details.put("absoluteScore", absoluteScore);
-
                 IndicatorResult ir = IndicatorResult.builder()
                         .projectId(projectId)
                         .assessmentId(assessmentId)
@@ -323,15 +321,16 @@ public class BehaviorProcessingService {
                         .indicatorLevel(metadata != null && metadata.indicatorLevel != null ? metadata.indicatorLevel : 0)
                         .dimension(metadata != null ? metadata.dimension : null)
                         .type(metadata != null ? metadata.type : null)
-                        .calculatedScore(BigDecimal.valueOf(absoluteScore))
-                        .maxPossibleScore(BigDecimal.valueOf(maxPossible))
+                        .calculatedScore(absoluteScore)
+                        .maxPossibleScore(maxPossible)
                         .usedCalculationRuleType("auto")
-                        .calculationDetails(details.toString())
-                        .matchedBehaviorsIds(new String[]{behaviorId})
+                        .calculationDetails(IndicatorResultDetail.builder()
+                                .relatedIndicators(Collections.singletonList(ri))
+                                .build())
                         .riskTriggered(false)
                         .riskStatus(IndicatorRiskStatus.fromCode("NOT_EVALUATED"))
-                        .calculatedAt(OffsetDateTime.now())
-                        .createdAt(OffsetDateTime.now())
+                        .calculatedAt(LocalDateTime.now())
+                        .createdAt(LocalDateTime.now())
                         .build();
                 indicatorResultRepository.save(ir);
             }
@@ -360,7 +359,7 @@ public class BehaviorProcessingService {
 
         // 存储每个指标下所有法规的详细信息：(法规得分, 层级权重, 相似度权重)
         Map<String, List<RegulationScore>> indicatorRegScores = new HashMap<>();
-        Map<String, List<String>> indicatorToRegs = new HashMap<>();
+        Map<String, RelatedIndicator> indicatorResults = new HashMap<>();
 
         // 初始化候选指标
         for (Scored<Indicator> s : indicators) {
@@ -436,12 +435,48 @@ public class BehaviorProcessingService {
                 indicatorRegScores.get(ind.getId()).add(
                     new RegulationScore(reg.getId(), qualitativeScore, hierarchyWeight, timelinessWeight, behaviorRegSim)
                 );
-                indicatorToRegs.computeIfAbsent(ind.getId(), k -> new ArrayList<>()).add(reg.getId());
+                RelatedIndicator indicatorResult = indicatorResults.getOrDefault(ind.getId(),
+                        RelatedIndicator.builder()
+                                .indicatorId(ind.getId())
+                                .indicatorName(ind.getName())
+                                .score(0.0)
+                                .maxScore(ind.getMaxScore())
+                                .relatedBehaviors(new ArrayList<>())
+                                .build());
+
+                // 因为这里一直是同一个behavior，只需要添加regulation即可
+                if(indicatorResult.getRelatedBehaviors().isEmpty()){
+                    indicatorResult.getRelatedBehaviors().add(
+                            RelatedBehavior.builder()
+                                    .projectId(behavior.getProjectId())
+                                    .description(behavior.getDescription())
+                                    .relatedRegulations(Collections.singletonList(
+                                            RelatedRegulation.builder()
+                                                    .regulationId(reg.getId())
+                                                    .regulationName(reg.getName())
+                                                    // todo: 填充相关法律更多字段
+                                                    .violationType("")
+                                                    .complianceRequirement("")
+                                                    .build()
+                                    ))
+                                    .build()
+                    );
+                } else {
+                    indicatorResult.getRelatedBehaviors().get(0).getRelatedRegulations().add(
+                            RelatedRegulation.builder()
+                                    .regulationId(reg.getId())
+                                    .regulationName(reg.getName())
+                                    // todo: 填充相关法律更多字段
+                                    .violationType("")
+                                    .complianceRequirement("")
+                                    .build()
+                    );
+                }
+                indicatorResults.put(ind.getId(), indicatorResult);
             }
         }
 
         // 计算每个指标的最终得分
-        Map<String, Double> finalScores = new HashMap<>();
         for (Scored<Indicator> sind : indicators) {
             Indicator ind = sind.getItem();
             if (ind == null || ind.getId() == null) continue;
@@ -452,11 +487,7 @@ public class BehaviorProcessingService {
                 // 对未被法规影响的指标做兜底
                 double fallback = getFallback(behavior, ind);
                 double clampedFallback = FallbackCalculator.clamp01(fallback);
-                finalScores.put(ind.getId(), clampedFallback);
-
-                if (fallback > 0) {
-                    indicatorToRegs.computeIfAbsent(ind.getId(), k -> new ArrayList<>()).add("FALLBACK");
-                }
+                indicatorResults.get(ind.getId()).setScore(clampedFallback);
                 if (fallback == 0) {
                     warnings.add("Indicator " + ind.getId() + " has zero fallback score");
                 }
@@ -474,14 +505,13 @@ public class BehaviorProcessingService {
 
                 double weightedAvgScore = totalWeight > 0 ? weightedSum / totalWeight : 0.0;
                 double clampedScore = FallbackCalculator.clamp01(weightedAvgScore);
-                finalScores.put(ind.getId(), clampedScore);
+                indicatorResults.get(ind.getId()).setScore(clampedScore);
             }
         }
 
         return MappingResult.builder()
                 .behaviorId(behavior.getId())
-                .indicatorScores(finalScores)
-                .indicatorInfluencingRegulations(indicatorToRegs)
+                .relatedIndicators(indicatorResults)
                 .warnings(warnings)
                 .build();
     }
@@ -515,182 +545,6 @@ public class BehaviorProcessingService {
 
             return qualitativeScore;
         }
-    }
-
-    /**
-     * 改名：计算并入库（projectId 与 assessmentId 由调用方传入）
-     * ✅ 使用 TransactionTemplate，只传递 DTO/基本类型，在事务内创建实体
-     */
-    public MappingResult computeAndPersistWithIds(Behavior behavior,
-                                                  List<Scored<Indicator>> indicators,
-                                                  List<Scored<Regulation>> regulations,
-                                                  Long projectId,
-                                                  Long assessmentId) {
-        MappingResult mr = computeMappingFromCandidates(behavior, indicators, regulations);
-
-        // ✅ 提取基本类型数据，不传递实体进入事务
-        final String currentBehaviorId = behavior != null && behavior.getId() != null ? behavior.getId() : null;
-        final Map<String, Double> scores = new HashMap<>(mr.getIndicatorScores());
-        final Map<String, List<String>> indicatorToRegs = mr.getIndicatorInfluencingRegulations() != null
-            ? new HashMap<>(mr.getIndicatorInfluencingRegulations())
-            : new HashMap<>();
-
-        // ✅ 提取指标元数据为简单 Map
-        final Map<String, IndicatorMetadataDTO> indicatorMetadataMap = new HashMap<>();
-        for (Scored<Indicator> s : indicators) {
-            if (s.getItem() != null && s.getItem().getId() != null) {
-                Indicator ind = s.getItem();
-                indicatorMetadataMap.put(ind.getId(), new IndicatorMetadataDTO(
-                    ind.getId(),
-                    ind.getName(),
-                    ind.getIndicatorLevel(),
-                    ind.getDimension(),
-                    ind.getType(),
-                    ind.getMaxScore()
-                ));
-            }
-        }
-
-        // ✅ 使用 TransactionTemplate 执行数据库操作
-        transactionTemplate.execute(status -> {
-            try {
-                List<IndicatorResult> savedResults = new ArrayList<>();
-
-                for (Map.Entry<String, Double> e : scores.entrySet()) {
-                    String indicatorEsId = e.getKey();
-                    double normalizedScore = e.getValue() == null ? 0.0 : e.getValue();
-
-                    // 从元数据 Map 获取
-                    IndicatorMetadataDTO metadata = indicatorMetadataMap.get(indicatorEsId);
-
-                    // 确保 maxPossible 始终为正数（数据库约束要求）
-                    double maxPossible = 100.0;  // 默认值
-                    if (metadata != null && metadata.maxScore != null && metadata.maxScore > 0) {
-                        maxPossible = metadata.maxScore;
-                    } else {
-                        log.warn("[MaxScore Warning] indicatorId={}, indicatorName={}, maxScore={}, using default={}",
-                                indicatorEsId,
-                                metadata != null ? metadata.name : "UNKNOWN",
-                                metadata != null ? metadata.maxScore : "null",
-                                maxPossible);
-                    }
-
-                    double absoluteScore = normalizedScore * maxPossible;
-
-                    // 查找是否存在相同 assessmentId 和 indicatorEsId 的记录
-                    Optional<IndicatorResult> existingOpt = indicatorResultRepository.findByAssessmentIdAndIndicatorEsId(assessmentId, indicatorEsId);
-
-                    if (existingOpt.isPresent() && currentBehaviorId != null) {
-                        IndicatorResult existing = existingOpt.get();
-                        String[] existingBehaviorIds = existing.getMatchedBehaviorsIds();
-
-                        // 检查当前 behaviorId 是否已经在列表中
-                        boolean alreadyContains = existingBehaviorIds != null && Arrays.asList(existingBehaviorIds).contains(currentBehaviorId);
-
-                        if (!alreadyContains) {
-                            // 合并：平均分数，添加 behavior ID
-                            double existingScore = existing.getCalculatedScore().doubleValue();
-                            int existingCount = existingBehaviorIds != null ? existingBehaviorIds.length : 0;
-                            double averagedScore = (existingScore * existingCount + absoluteScore) / (existingCount + 1);
-
-                            // 合并 behavior IDs（去重）
-                            Set<String> mergedBehaviorIds = new HashSet<>(Arrays.asList(existingBehaviorIds));
-                            mergedBehaviorIds.add(currentBehaviorId);
-
-                            existing.setCalculatedScore(BigDecimal.valueOf(averagedScore));
-                            existing.setMatchedBehaviorsIds(mergedBehaviorIds.toArray(new String[0]));
-                            existing.setCalculatedAt(OffsetDateTime.now());
-
-                            // 更新 calculation_details
-                            ObjectNode details = buildCalculationDetails(averagedScore / maxPossible, indicatorToRegs.get(indicatorEsId));
-                            details.put("absoluteScore", averagedScore);
-                            details.put("averagedFrom", "existing_and_new");
-                            existing.setCalculationDetails(details.toString());
-
-                            IndicatorResult saved = indicatorResultRepository.saveAndFlush(existing);
-                            savedResults.add(saved);
-                            continue;
-                        }
-                    }
-
-                    // ✅ 在事务内创建新记录
-                    ObjectNode details = buildCalculationDetails(normalizedScore, indicatorToRegs.get(indicatorEsId));
-                    details.put("absoluteScore", absoluteScore);
-
-                    IndicatorResult ir = IndicatorResult.builder()
-                            .projectId(projectId)
-                            .assessmentId(assessmentId)
-                            .indicatorEsId(indicatorEsId)
-                            .indicatorName(metadata != null ? metadata.name : (indicatorEsId == null ? "" : indicatorEsId))
-                            .indicatorLevel(metadata != null && metadata.indicatorLevel != null ? metadata.indicatorLevel : 0)
-                            .dimension(metadata != null ? metadata.dimension : null)
-                            .type(metadata != null ? metadata.type : null)
-                            .calculatedScore(BigDecimal.valueOf(absoluteScore))
-                            .maxPossibleScore(BigDecimal.valueOf(maxPossible))
-                            .usedCalculationRuleType("auto")
-                            .calculationDetails(details.toString())
-                            .matchedBehaviorsIds(currentBehaviorId != null ? new String[]{currentBehaviorId} : new String[0])
-                            .riskTriggered(false)
-                            .riskStatus(IndicatorRiskStatus.fromCode("NOT_EVALUATED"))
-                            .calculatedAt(OffsetDateTime.now())
-                            .createdAt(OffsetDateTime.now())
-                            .build();
-
-                    IndicatorResult saved = indicatorResultRepository.saveAndFlush(ir);
-                    savedResults.add(saved);
-                }
-
-                log.info("[Preparing to Save IndicatorResults] count={}, projectId={}, assessmentId={}",
-                        savedResults.size(), projectId, assessmentId);
-
-                if (savedResults.isEmpty()) {
-                    log.warn("[No IndicatorResults to Save] projectId={}, assessmentId={}, reason=NO_INDICATOR_SCORES",
-                            projectId, assessmentId);
-                    return true;
-                }
-
-                // 验证保存结果
-                int generatedIdCount = 0;
-                for (IndicatorResult saved : savedResults) {
-                    boolean hasId = saved.getId() != null;
-                    if (hasId) generatedIdCount++;
-                }
-
-                if (generatedIdCount == 0) {
-                    log.error("[CRITICAL] No IDs were generated! This means data was NOT persisted to database!");
-                    log.error("[CRITICAL] Possible causes: 1) Transaction not active 2) Database constraints violated 3) Entity state issue");
-
-                    // 尝试从数据库查询验证
-                    try {
-                        long count = indicatorResultRepository.countByAssessmentId(assessmentId);
-                        log.error("[Database Verification] Records in DB for assessmentId={}: count={}", assessmentId, count);
-                    } catch (Exception dbEx) {
-                        log.error("[Database Verification Failed] {}", dbEx.getMessage());
-                    }
-
-                    status.setRollbackOnly();
-                    throw new RuntimeException("Failed to generate IDs for saved entities - data not persisted");
-                } else {
-                    log.info("[ID Generation Summary] Generated IDs: {}/{}", generatedIdCount, savedResults.size());
-                }
-
-                return true;
-
-            } catch (Exception ex) {
-                // ✅ 打印完整的 root cause
-                log.error("[Failed to Save IndicatorResults] projectId={}, assessmentId={}, error={}",
-                        projectId, assessmentId, ex.getMessage(), ex);
-                Throwable rootCause = ex;
-                while (rootCause.getCause() != null) {
-                    rootCause = rootCause.getCause();
-                }
-                log.error("[Root Cause] {}: {}", rootCause.getClass().getName(), rootCause.getMessage());
-                status.setRollbackOnly();
-                throw new RuntimeException("Failed to save IndicatorResults", ex);
-            }
-        });
-
-        return mr;
     }
 
     private static double getFallback(Behavior behavior, Indicator ind) {

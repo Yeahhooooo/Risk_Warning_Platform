@@ -2,13 +2,19 @@ package com.riskwarning.report.entity.vo.indicator;
 
 
 import com.riskwarning.common.enums.RiskDimensionEnum;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class IndicatorDistributionVO {
 
     private RiskDimensionEnum riskDimensionEnum;// 为空表示总体维度

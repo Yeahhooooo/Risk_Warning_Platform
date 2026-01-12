@@ -1,6 +1,6 @@
 package com.riskwarning.common.po.indicator;
 
-import com.riskwarning.common.enums.RiskLevelEnum;
+import com.riskwarning.common.enums.risk.RiskLevelEnum;
 import lombok.Builder;
 import lombok.Data;
 

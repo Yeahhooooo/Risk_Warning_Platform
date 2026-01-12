@@ -41,6 +41,6 @@ public enum RiskDimensionEnum {
                 return dim;
             }
         }
-        return null;
+        throw new IllegalArgumentException(dimension);
     }
 }
