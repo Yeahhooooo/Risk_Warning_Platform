@@ -90,36 +90,38 @@ public class AssessmentServiceImpl implements AssessmentService {
                         .build();
                 risks.add(risk);
             }
-            try {
-                BulkResponse response = elasticsearchClient.bulk(b -> {
-                    for (Risk risk : risks) {
-                        b.operations(op -> op
-                                .index(idx -> idx
-                                        .index(ElasticSearchConfig.RISK_INDEX)
-                                        .document(risk)
-                                )
-                        );
-                    }
-                    return b;
-                });
-                if (response.errors()) {
-                    log.error("Bulk insert encountered errors: {}", response.items().toString());
-                    throw new Exception("Bulk insert to Elasticsearch failed");
-                }
-            } catch (Exception e) {
-                log.error("Failed to index risk for indicatorResultId: {}", ir.getId(), e);
-                throw new RuntimeException(e);
-            }
-            assessment.setOverallScore(totalScore);
-//            // TODO: 总风险等级依靠owRiskCount, mediumRiskCoun, highRiskCount来设置
-            assessment.setOverallRiskLevel(RiskLevelEnum.getByRiskCount(lowRiskCount, mediumRiskCount, highRiskCount));
-            assessment.setStatus(AssessmentStatusEnum.ASSESSED);
-            assessment.setDetails(JSON.toJSONString(new AssessmentGeneralDetails(
-                    reportService.assembleGeneral(assessmentId),
-                    reportService.assembleIndicatorResult(assessmentId)
-            )));
-            assessment.setAssessmentDate(LocalDateTime.now());
-            assessmentRepository.save(assessment);
         }
+
+        try {
+            BulkResponse response = elasticsearchClient.bulk(b -> {
+                for (Risk risk : risks) {
+                    b.operations(op -> op
+                            .index(idx -> idx
+                                    .index(ElasticSearchConfig.RISK_INDEX)
+                                    .document(risk)
+                            )
+                    );
+                }
+                return b;
+            });
+            if (response.errors()) {
+                log.error("Bulk insert encountered errors: {}", response.items().toString());
+                throw new Exception("Bulk insert to Elasticsearch failed");
+            }
+        } catch (Exception e) {
+            log.error("Failed to index risk documents to Elasticsearch: {}", e.getMessage());
+            throw new RuntimeException(e);
+        }
+
+        assessment.setOverallScore(totalScore);
+//            // TODO: 总风险等级依靠owRiskCount, mediumRiskCoun, highRiskCount来设置
+        assessment.setOverallRiskLevel(RiskLevelEnum.getByRiskCount(lowRiskCount, mediumRiskCount, highRiskCount));
+        assessment.setStatus(AssessmentStatusEnum.ASSESSED);
+        assessment.setDetails(JSON.toJSONString(new AssessmentGeneralDetails(
+                reportService.assembleGeneral(assessment),
+                reportService.assembleIndicatorResult(assessment)
+        )));
+        assessment.setAssessmentDate(LocalDateTime.now());
+        assessmentRepository.save(assessment);
     }
 }

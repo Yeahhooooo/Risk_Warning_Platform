@@ -16,7 +16,7 @@ public class ReportController {
 
     @GetMapping("/report/indicatorResult/{assessmentId}")
     public Result reportIndicatorResult(@PathVariable Long assessmentId) {
-        return Result.success(reportService.assembleIndicatorResult(assessmentId));
+        return Result.success(reportService.assembleIndicatorResult(null));
     }
 
     @GetMapping("/report/risk")
@@ -26,7 +26,7 @@ public class ReportController {
 
     @GetMapping("/report/general/{assessmentId}")
     public Result reportGeneral(@PathVariable Long assessmentId) {
-        return Result.success(reportService.assembleGeneral(assessmentId));
+        return Result.success(reportService.assembleGeneral(null));
     }
 
 }

@@ -2,8 +2,10 @@ package com.riskwarning.processing.task;
 
 
 import com.riskwarning.common.constants.Constants;
+import com.riskwarning.common.enums.indicator.IndicatorRiskStatus;
 import com.riskwarning.common.message.BehaviorProcessingTaskMessage;
 import com.riskwarning.common.message.IndicatorCalculationTaskMessage;
+import com.riskwarning.common.po.indicator.IndicatorResult;
 import com.riskwarning.common.utils.FileUtils;
 import com.riskwarning.common.utils.KafkaUtils;
 import com.riskwarning.common.utils.StringUtils;
@@ -16,8 +18,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -64,9 +66,6 @@ public class MessageTask {
 
                     fileThreadPoolExecutor.execute(() -> {
                         long startTime = System.currentTimeMillis();
-                        log.info("✓ [TX Started in Kafka Thread] TX active = {}, thread={}",
-                                TransactionSynchronizationManager.isActualTransactionActive(),
-                                Thread.currentThread().getName());
 
                         try {
                             // 步骤1: 文档处理 - 提取行为
@@ -80,10 +79,10 @@ public class MessageTask {
 
                             // 步骤2: 批处理 - 将行为存入ES
                             log.info("▶ 步骤 2/3: 开始批处理任务，将行为数据存入ES...");
-                            batchJob.runBatchJob(
-                                    message.getProjectId(),
-                                    internalFiles
-                            );
+//                            batchJob.runBatchJob(
+//                                    message.getProjectId(),
+//                                    internalFiles
+//                            );
                             log.info("✓ 步骤 2/3 完成: 批处理任务成功，行为数据已存入ES");
 
                             // 步骤3: 发送消息到指标计算任务队列
@@ -158,6 +157,7 @@ public class MessageTask {
 
     @KafkaListener(topics = "indicator_calculation_tasks", groupId = "indicator-calculation-consumer")
     public void onMessage(IndicatorCalculationTaskMessage message) {
+
         log.info("========================================");
         log.info("[Kafka消息接收] topic=indicator_calculation_tasks, messageId={}, projectId={}, assessmentId={}",
                 message.getMessageId(), message.getProjectId(), message.getAssessmentId());

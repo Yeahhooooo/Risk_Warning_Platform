@@ -10,4 +10,6 @@ import java.util.Optional;
 public interface AssessmentRepository extends JpaRepository<Assessment, Integer> {
 
     public Optional<Assessment> findById(Long id);
+
+    Assessment findByProjectId(Long projectId);
 }

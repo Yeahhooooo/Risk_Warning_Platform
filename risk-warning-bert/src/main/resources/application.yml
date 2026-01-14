@@ -4,11 +4,6 @@ server:
 spring:
   application:
     name: risk-warning-bert
-  # 禁用数据源自动配置（此服务不需要数据库）
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
   # 禁用 Elasticsearch 自动配置（如果不需要）
   elasticsearch:
     uris: http://localhost:9200  # 占位符，避免配置缺失错误

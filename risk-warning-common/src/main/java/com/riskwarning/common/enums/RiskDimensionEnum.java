@@ -37,7 +37,7 @@ public enum RiskDimensionEnum {
 
     public static RiskDimensionEnum fromValue(String dimension) {
         for (RiskDimensionEnum dim : RiskDimensionEnum.values()) {
-            if (dim.name().equalsIgnoreCase(dimension)) {
+            if (dim.description.equals(dimension)) {
                 return dim;
             }
         }

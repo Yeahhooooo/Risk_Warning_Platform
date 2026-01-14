@@ -1,6 +1,7 @@
 package com.riskwarning.common.po.indicator;
 
 
+import com.vladmihalcea.hibernate.type.json.JsonBinaryType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -28,6 +29,7 @@ import java.time.OffsetDateTime;
 @Entity
 @Table(name = "t_indicator_result")
 @TypeDef(name = "pgsql_enum", typeClass = PostgreSQLEnumType.class)
+@TypeDef(name = "jsonb", typeClass = JsonBinaryType.class)
 public class IndicatorResult implements Serializable {
     private static final long serialVersionUID = 1L;
 

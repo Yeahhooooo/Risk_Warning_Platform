@@ -6,4 +6,8 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface AssessmentRepository extends JpaRepository<Assessment, Integer> {
+
+    Assessment findByProjectId(long l);
+
+    Assessment findById(long l);
 }

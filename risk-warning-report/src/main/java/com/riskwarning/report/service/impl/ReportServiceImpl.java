@@ -44,13 +44,8 @@ public class ReportServiceImpl implements ReportService {
     private ElasticsearchClient esClient;
 
     @Override
-    public IndicatorDistributionVO assembleIndicatorResult(Long assessmentId) {
+    public IndicatorDistributionVO assembleIndicatorResult(Assessment assessment) {
 
-        Assessment assessment = assessmentRepository.findById(assessmentId).orElse(null);
-
-        if(assessment == null) {
-            throw new BusinessException("Assessment not found");
-        }
         // 检查assessment的detail属性是否已经存在indicatorDistribution信息，若存在则直接反序列化返回，避免重复计算
         if(assessment.getDetails() != null && !assessment.getDetails().isEmpty()) {
             try{
@@ -63,9 +58,9 @@ public class ReportServiceImpl implements ReportService {
 
         }
         // TODO: 目前写在内存中进行聚合，之后可能考虑使用数据库进行聚合计算
-        List<IndicatorResult> indicatorResults = indicatorResultRepository.findByAssessmentId(assessmentId);
+        List<IndicatorResult> indicatorResults = indicatorResultRepository.findByAssessmentId(assessment.getId());
         IndicatorDistributionVO indicatorDistributionVO = new IndicatorDistributionVO();
-        indicatorDistributionVO.setAssessmentId(assessmentId);
+        indicatorDistributionVO.setAssessmentId(assessment.getId());
         indicatorDistributionVO.setRiskDimensionEnum(null);
         indicatorDistributionVO.setTotalScore(assessment.getOverallScore());
         indicatorDistributionVO.setTotalCount(indicatorResults.size());
@@ -112,7 +107,7 @@ public class ReportServiceImpl implements ReportService {
                     .getOrDefault(RiskDimensionEnum.fromValue(indicatorResult.getDimension()),
                             IndicatorDistributionVO.builder()
                                     .riskDimensionEnum(RiskDimensionEnum.fromValue(indicatorResult.getDimension()))
-                                    .assessmentId(assessmentId)
+                                    .assessmentId(assessment.getId())
                                     .assessmentTime(assessment.getAssessmentDate())
                                     .totalScore(0.0)
                                     .totalCount(0)
@@ -163,12 +158,7 @@ public class ReportServiceImpl implements ReportService {
     }
 
     @Override
-    public AssessmentDetailVO assembleGeneral(Long assessmentId) {
-        Assessment assessment = assessmentRepository.findById(assessmentId).orElse(null);
-        if(assessment == null) {
-            throw new BusinessException("Assessment not found");
-        }
-
+    public AssessmentDetailVO assembleGeneral(Assessment assessment) {
         // 检查assessment的detail属性是否已经存在general信息，若存在则直接反序列化返回，避免重复计算
         if(assessment.getDetails() != null && !assessment.getDetails().isEmpty()) {
             try{
@@ -183,7 +173,7 @@ public class ReportServiceImpl implements ReportService {
 
         AssessmentDetailVO assessmentDetailVO = new AssessmentDetailVO();
         assessmentDetailVO.setProjectId(assessment.getProjectId());
-        assessmentDetailVO.setAssessmentId(assessmentId);
+        assessmentDetailVO.setAssessmentId(assessment.getId());
         assessmentDetailVO.setAssessmentDate(assessment.getAssessmentDate());
         assessmentDetailVO.setOverallResult(OverallResult.builder()
                 .overallScore(assessment.getOverallScore())
@@ -197,7 +187,7 @@ public class ReportServiceImpl implements ReportService {
         for(RiskDimensionEnum riskDimensionEnum : RiskDimensionEnum.values()) {
             assessmentDetailVO.getDimensionRiskDistribution().put(riskDimensionEnum, new DimensionRiskDistribution());
         }
-        List<Risk> risks = fetchRisksFromES(assessmentId, null, null);
+        List<Risk> risks = fetchRisksFromES(assessment.getId(), null, null);
         assessmentDetailVO.getIndicatorOverview().setBehaviorIndicators(risks.size());
         for(Risk risk : risks) {
             RiskDimensionEnum dimensionEnum = RiskDimensionEnum.fromValue(risk.getDimension());

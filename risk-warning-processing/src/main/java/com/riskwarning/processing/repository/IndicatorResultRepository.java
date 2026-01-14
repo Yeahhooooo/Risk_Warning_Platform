@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.util.Date;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 /**
@@ -33,9 +33,35 @@ public interface IndicatorResultRepository extends JpaRepository<IndicatorResult
     Optional<IndicatorResult> findByAssessmentId(Long assessmentId);
 
 
-    /*
-    * CAS更新，比较calculated_at字段
-    * */
-
+    /**
+     * CAS更新，比较calculated_at字段进行乐观锁更新
+     * 只有当数据库中的 calculated_at 等于 oldCalculatedAt 时才会更新成功
+     *
+     * @param result 完整的指标结果对象（包含要更新的所有字段）
+     * @param oldCalculatedAt 旧的计算时间（用于乐观锁比较）
+     * @return 更新影响的行数，1表示更新成功，0表示更新失败（版本冲突）
+     */
+    @Modifying
+    @Query(value = "UPDATE t_indicator_result SET " +
+            "project_id = :#{#result.projectId}, " +
+            "assessment_id = :#{#result.assessmentId}, " +
+            "indicator_es_id = :#{#result.indicatorEsId}, " +
+            "indicator_name = :#{#result.indicatorName}, " +
+            "indicator_level = :#{#result.indicatorLevel}, " +
+            "dimension = :#{#result.dimension}, " +
+            "type = :#{#result.type}, " +
+            "calculated_score = :#{#result.calculatedScore}, " +
+            "max_possible_score = :#{#result.maxPossibleScore}, " +
+            "used_calculation_rule_type = :#{#result.usedCalculationRuleType}, " +
+            "calculation_details = CAST(:#{#result.calculationDetails} AS jsonb), " +
+            "risk_triggered = :#{#result.riskTriggered}, " +
+            "risk_status = CAST(:#{#result.riskStatus} AS indicator_risk_status_enum), " +
+            "calculated_at = :#{#result.calculatedAt} " +
+            "WHERE id = :#{#result.id} AND calculated_at = :oldCalculatedAt",
+            nativeQuery = true)
+    int updateWithOptimisticLock(
+            @Param("result") IndicatorResult result,
+            @Param("oldCalculatedAt") LocalDateTime oldCalculatedAt
+    );
 
 }

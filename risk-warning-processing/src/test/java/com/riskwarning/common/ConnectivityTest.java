@@ -5,7 +5,9 @@ import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.InfoResponse;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import com.riskwarning.common.config.TestConsumer;
+import com.riskwarning.common.enums.AssessmentStatusEnum;
 import com.riskwarning.common.enums.indicator.IndicatorRiskStatus;
+import com.riskwarning.common.enums.risk.RiskLevelEnum;
 import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.common.po.indicator.IndicatorResult;
 import com.riskwarning.common.po.regulation.Regulation;
@@ -18,11 +20,13 @@ import com.riskwarning.common.po.indicator.Indicator;
 import com.riskwarning.common.utils.RedisUtil;
 import com.riskwarning.processing.repository.AssessmentRepository;
 import com.riskwarning.processing.repository.IndicatorResultRepository;
+import com.riskwarning.processing.service.BehaviorProcessingService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
@@ -61,23 +65,30 @@ public class ConnectivityTest {
     @Autowired
     private AssessmentRepository assessmentRepository;
 
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private BehaviorProcessingService behaviorProcessingService;
+
     @Test
+    @Transactional
     public void testDatabaseConnection() {
         try {
             // 尝试获取PostgreSQL连接以验证连接
 
-
+            Assessment assessment = assessmentRepository.findById(88L).get();
 
             IndicatorResult ir = IndicatorResult.builder()
-                    .projectId(22L)
-                    .assessmentId(1000L)
+                    .projectId(7L)
+                    .assessmentId(88L)
                     .indicatorEsId("indicatorEsId")
                     .indicatorName("test")
                     .indicatorLevel(0)
                     .dimension("test")
                     .type("test")
                     .calculatedScore(0.0)
-                    .maxPossibleScore(0.0)
+                    .maxPossibleScore(1.0)
                     .usedCalculationRuleType("auto")
                     .calculationDetails(null)
                     .riskTriggered(false)
@@ -85,12 +96,40 @@ public class ConnectivityTest {
                     .calculatedAt(LocalDateTime.now())
                     .createdAt(LocalDateTime.now())
                     .build();
-            IndicatorResult indicatorResult = indicatorResultRepository.save(ir);
+            indicatorResultRepository.saveAndFlush(ir);
             System.out
-                    .println("Connected to the database and saved IndicatorResult with ID: " + indicatorResult.getId());
+                    .println("Connected to the database and saved IndicatorResult with ID: ");
         } catch (Exception e) {
             e.printStackTrace();
             assert false : "Failed to connect to the database";
+        }
+    }
+
+    @Test
+    @Transactional
+    public void testAssessmentQuery() {
+        try {
+
+            Assessment assessment1 = assessmentRepository.findById(88L).get();
+
+            Assessment assessment = Assessment.builder()
+                    .projectId(1000L)
+                    .assessmentDate(LocalDateTime.now())
+                    .overallScore(0.0)
+                    .overallRiskLevel(RiskLevelEnum.LOW_RISK)
+                    .details("")
+                    .recommendations("")
+                    .status(AssessmentStatusEnum.ASSESSING)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            assessmentRepository.saveAndFlush(assessment);
+
+            Assessment assessment2 = assessmentRepository.findByProjectId(1000L);
+
+            assert assessment2.getOverallScore() == 0.0;
+        } catch (Exception e) {
+            e.printStackTrace();
+            assert false : "Failed to query assessments from the database";
         }
     }
 

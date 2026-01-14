@@ -2,9 +2,7 @@ package com.riskwarning.processing.controller;
 
 import com.riskwarning.common.annotation.AuthRequired;
 import com.riskwarning.common.context.UserContext;
-import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.common.result.Result;
-import com.riskwarning.processing.dto.MappingResult;
 import com.riskwarning.processing.service.BehaviorProcessingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
