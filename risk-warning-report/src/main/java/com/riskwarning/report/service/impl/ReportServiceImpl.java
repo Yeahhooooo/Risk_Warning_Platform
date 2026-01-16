@@ -49,7 +49,7 @@ public class ReportServiceImpl implements ReportService {
         // 检查assessment的detail属性是否已经存在indicatorDistribution信息，若存在则直接反序列化返回，避免重复计算
         if(assessment.getDetails() != null && !assessment.getDetails().isEmpty()) {
             try{
-                AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(JSON.toJSONString(assessment.getDetails()), AssessmentGeneralDetails.class);
+                AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(assessment.getDetails(), AssessmentGeneralDetails.class);
                 return assessmentGeneralDetails.getIndicatorDistributionVO();
             } catch (Exception e) {
                 log.error("评估报告已存在详细信息但反序列化失败", e);
@@ -162,7 +162,7 @@ public class ReportServiceImpl implements ReportService {
         // 检查assessment的detail属性是否已经存在general信息，若存在则直接反序列化返回，避免重复计算
         if(assessment.getDetails() != null && !assessment.getDetails().isEmpty()) {
             try{
-                AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(JSON.toJSONString(assessment.getDetails()), AssessmentGeneralDetails.class);
+                AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(assessment.getDetails(), AssessmentGeneralDetails.class);
                 return assessmentGeneralDetails.getAssessmentDetailVO();
             } catch (Exception e) {
                 log.error("评估报告已存在详细信息但反序列化失败", e);
