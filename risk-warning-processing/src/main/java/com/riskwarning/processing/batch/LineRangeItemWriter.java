@@ -33,7 +33,7 @@ public class LineRangeItemWriter implements ItemWriter<Behavior> {
                 for(Behavior behavior : list) {
                     texts.add(behavior.getDescription());
                 }
-                // todo: 批量infertags
+//                // todo: 批量infertags
 //                List<List<String>> tags = LLMUtil.inferTagsBatch(texts);
 //                // todo; 批量进行BERT向量化
 ////                List<float[]> vectors = VectorizationUtil.batchVectorize(texts);
