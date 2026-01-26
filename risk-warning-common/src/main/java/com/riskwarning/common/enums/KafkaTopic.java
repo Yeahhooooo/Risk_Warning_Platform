@@ -19,7 +19,9 @@ public enum KafkaTopic {
 
     QUESTIONNAIRE_REMINDER_TASKS("questionnaire_reminder_tasks", "问卷提醒任务主题"),
 
-    ASSESSMENT_COMPLETED_EVENTS("assessment_completed_events", "评估完成事件主题");
+    ASSESSMENT_COMPLETED_EVENTS("assessment_completed_events", "评估完成事件主题"),
+
+    NOTIFICATION_TASKS("notification_tasks", "通知推送任务主题");
 
     private final String topicName;
 

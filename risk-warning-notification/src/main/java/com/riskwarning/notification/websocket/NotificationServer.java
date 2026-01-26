@@ -14,6 +14,7 @@ import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.handler.stream.ChunkedWriteHandler;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -23,6 +24,9 @@ public class NotificationServer {
 
     @Value("${netty.websocket.port}")
     private int port;
+
+    @Autowired
+    private NotificationWebSocketHandler webSocketHandler;
 
     private EventLoopGroup boss;
 
@@ -47,7 +51,7 @@ public class NotificationServer {
                                     .addLast(new HttpObjectAggregator(65536))
                                     .addLast(new ChunkedWriteHandler())
                                     .addLast(new WebSocketServerProtocolHandler("/ws"))
-                                    .addLast();
+                                    .addLast(webSocketHandler);
                         }
                     });
 

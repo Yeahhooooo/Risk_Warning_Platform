@@ -23,6 +23,14 @@ public enum RiskLevelEnum {
         this.description = description;
     }
 
+    public String getCode() {
+        return code;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
     public static RiskLevelEnum fromValue(String riskLevel) {
         for (RiskLevelEnum level : RiskLevelEnum.values()) {
             if (level.name().equalsIgnoreCase(riskLevel)) {

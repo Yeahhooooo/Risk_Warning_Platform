@@ -26,7 +26,7 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       # todo: partition sets 3, multi developers need to specify partitions to produce and consume from topics
-      KAFKA_CREATE_TOPICS: "test:1:1,behavior_processing_tasks:3:1,indicator_calculation_tasks:3:1,risk_assessment_tasks:3:1,questionnaire_reminder_tasks:3:1,assessment_completed_events:3:1"
+      KAFKA_CREATE_TOPICS: "test:1:1,behavior_processing_tasks:3:1,indicator_calculation_tasks:3:1,risk_assessment_tasks:3:1,questionnaire_reminder_tasks:3:1,assessment_completed_events:3:1,notification_tasks:3:1"
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
