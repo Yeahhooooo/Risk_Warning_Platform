@@ -3,4 +3,5 @@ flask-cors==4.0.0
 transformers==4.35.0
 torch
 numpy
+scikit-learn
 
