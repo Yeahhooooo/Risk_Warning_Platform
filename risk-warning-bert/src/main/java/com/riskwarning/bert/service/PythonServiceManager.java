@@ -4,15 +4,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import org.springframework.http.*;
+import org.springframework.web.client.RestTemplate;
+
 import javax.annotation.PreDestroy;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
-import java.nio.file.Paths;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
-
 
 @Slf4j
 @Service
@@ -42,60 +44,101 @@ public class PythonServiceManager {
     @Value("${bert.service.healthcheck.interval:5000}")
     private long healthcheckInterval;
 
-    @Value("${bert.service.healthcheck.timeout:30000}")
-    private long healthcheckTimeout;
-
     private Process pythonProcess;
     private Thread healthcheckThread;
     private volatile boolean running = false;
+    
+    private final RestTemplate restTemplate = new RestTemplate();
+    
+    private String getPythonServiceUrl() {
+        return "http://localhost:" + servicePort;
+    }
 
     
     public void startService() {
         if (!serviceEnabled) {
-            log.info("Python BERT服务已禁用，跳过启动");
+            log.info("Python服务已禁用，跳过启动");
             return;
         }
 
         try {
-            // 获取Python脚本的绝对路径
-            File scriptFile = getScriptFile();
+            // 先停止旧服务（如果存在）
+            stopOldService();
+            
+            File scriptFile = findScriptFile();
             if (!scriptFile.exists()) {
                 throw new RuntimeException("Python脚本不存在: " + scriptFile.getAbsolutePath());
             }
 
-            // 构建命令
-            List<String> command = buildCommand(scriptFile);
-
-            // 启动进程
-            ProcessBuilder processBuilder = new ProcessBuilder(command);
-            processBuilder.directory(scriptFile.getParentFile());
-            processBuilder.redirectErrorStream(true);
-
+            ProcessBuilder pb = new ProcessBuilder(pythonPath, scriptFile.getAbsolutePath());
+            pb.directory(scriptFile.getParentFile());
+            pb.redirectErrorStream(true);
+            
             // 设置环境变量
-            processBuilder.environment().put("PORT", String.valueOf(servicePort));
-            processBuilder.environment().put("HOST", serviceHost);
-            processBuilder.environment().put("BERT_MODEL_NAME", modelName);
-            processBuilder.environment().put("PYTHONUNBUFFERED", "1");
+            pb.environment().put("PORT", String.valueOf(servicePort));
+            pb.environment().put("HOST", serviceHost);
+            pb.environment().put("BERT_MODEL_NAME", modelName);
+            pb.environment().put("PYTHONUNBUFFERED", "1");
 
-            pythonProcess = processBuilder.start();
+            pythonProcess = pb.start();
             running = true;
 
-            // 启动日志输出线程
             startLogReader();
-
-            // 等待服务启动
             waitForServiceReady();
-
-            // 启动健康检查
+            
             if (healthcheckEnabled) {
                 startHealthcheck();
             }
 
-            log.info("Python BERT服务启动成功，监听端口: {}", servicePort);
-
+            log.info("Python服务启动成功，端口: {}", servicePort);
         } catch (Exception e) {
-            log.error("启动Python BERT服务失败", e);
-            throw new RuntimeException("启动Python BERT服务失败", e);
+            log.error("启动Python服务失败", e);
+            throw new RuntimeException("启动Python服务失败: " + e.getMessage(), e);
+        }
+    }
+    
+    private void stopOldService() {
+        try {
+            // 检查端口是否被占用
+            java.net.ServerSocket socket = new java.net.ServerSocket();
+            try {
+                socket.bind(new java.net.InetSocketAddress("localhost", servicePort), 1);
+                socket.close();
+                log.debug("端口 {} 未被占用", servicePort);
+            } catch (java.net.BindException e) {
+                log.warn("端口 {} 已被占用，尝试终止占用进程", servicePort);
+                // 端口被占用，尝试找到并终止占用进程
+                try {
+                    Process findProcess = new ProcessBuilder(
+                        "cmd", "/c", 
+                        "netstat -ano | findstr :" + servicePort + " | findstr LISTENING"
+                    ).start();
+                    
+                    java.io.BufferedReader reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(findProcess.getInputStream())
+                    );
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        String[] parts = line.trim().split("\\s+");
+                        if (parts.length > 0) {
+                            try {
+                                String pid = parts[parts.length - 1];
+                                int processId = Integer.parseInt(pid);
+                                log.info("终止占用端口的进程: {}", processId);
+                                Runtime.getRuntime().exec("taskkill /F /PID " + processId);
+                                Thread.sleep(1000); // 等待进程终止
+                            } catch (Exception ex) {
+                                log.debug("无法终止进程: {}", ex.getMessage());
+                            }
+                        }
+                    }
+                    reader.close();
+                } catch (Exception ex) {
+                    log.warn("无法终止占用端口的进程: {}", ex.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("检查端口占用时出错: {}", e.getMessage());
         }
     }
 
@@ -107,17 +150,12 @@ public class PythonServiceManager {
 
         if (pythonProcess != null && pythonProcess.isAlive()) {
             running = false;
-
             try {
-                // 优雅关闭
                 pythonProcess.destroy();
-                boolean terminated = pythonProcess.waitFor(10, TimeUnit.SECONDS);
-
-                if (!terminated) {
+                if (!pythonProcess.waitFor(10, TimeUnit.SECONDS)) {
                     pythonProcess.destroyForcibly();
                     pythonProcess.waitFor(5, TimeUnit.SECONDS);
                 }
-
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 pythonProcess.destroyForcibly();
@@ -125,55 +163,29 @@ public class PythonServiceManager {
         }
     }
 
-  
     public boolean isServiceRunning() {
         return running && pythonProcess != null && pythonProcess.isAlive();
     }
 
- 
-    private File getScriptFile() {
-        // 尝试多种路径
+    private File findScriptFile() {
         String userDir = System.getProperty("user.dir");
         String scriptName = new File(pythonScript).getName();
         
+        // 尝试的路径列表（按优先级）
+        List<String> paths = Arrays.asList(
+            pythonScript,  // 配置的相对路径
+            userDir + "/" + pythonScript,  // 相对于工作目录
+            userDir + "/risk-warning-bert/bert-service/" + scriptName,  // 从项目根目录
+            userDir + "/bert-service/" + scriptName  // 当前就是模块目录
+        );
+        
         // 尝试通过类路径定位模块目录
-        String moduleDir = getModuleDirectory();
-        
-        List<String> possiblePaths = new ArrayList<>();
-        
-        // 1. 直接使用配置的路径（相对路径）
-        possiblePaths.add(pythonScript);
-        
-        // 2. 相对于当前工作目录
-        possiblePaths.add(userDir + "/" + pythonScript);
-        
-        // 3. 如果找到了模块目录，使用模块目录
+        String moduleDir = getModuleDir();
         if (moduleDir != null) {
-            possiblePaths.add(moduleDir + "/bert-service/" + scriptName);
-            possiblePaths.add(moduleDir + "/" + pythonScript);
-        }
-        
-        // 4. 在 risk-warning-bert 模块下的 bert-service 目录（从项目根目录）
-        possiblePaths.add(userDir + "/risk-warning-bert/bert-service/" + scriptName);
-        
-        // 5. 如果当前目录就是 risk-warning-bert，直接查找 bert-service
-        possiblePaths.add(userDir + "/bert-service/" + scriptName);
-        
-        // 6. 如果从项目根目录运行，查找 risk-warning-bert 子目录
-        possiblePaths.add(userDir + "/../risk-warning-bert/bert-service/" + scriptName);
-        
-        // 7. 尝试通过类路径定位（编译后的路径）
-        possiblePaths.add(userDir + "/target/classes/" + pythonScript);
-        
-        // 8. Maven 资源路径（不太可能，但保留）
-        possiblePaths.add("src/main/resources/" + pythonScript);
-
-       
-        if (moduleDir != null) {
-            log.info("模块目录: {}", moduleDir);
+            paths.add(0, moduleDir + "/bert-service/" + scriptName);
         }
 
-        for (String path : possiblePaths) {
+        for (String path : paths) {
             File file = new File(path);
             if (file.exists() && file.isFile()) {
                 log.info("找到Python脚本: {}", file.getAbsolutePath());
@@ -181,71 +193,41 @@ public class PythonServiceManager {
             }
         }
 
-        // 如果都找不到，抛出异常
         throw new RuntimeException("找不到Python脚本: " + pythonScript + 
-            "。已尝试路径: " + String.join(", ", possiblePaths) +
-            "。当前工作目录: " + userDir);
+            "，已尝试路径: " + String.join(", ", paths));
     }
-  
-    private String getModuleDirectory() {
+
+    private String getModuleDir() {
         try {
-            // 获取当前类的路径
             String classPath = this.getClass().getProtectionDomain()
                 .getCodeSource().getLocation().getPath();
-            
-            // 解码 URL 编码
             classPath = java.net.URLDecoder.decode(classPath, "UTF-8");
             
-            // 如果是 Windows，去掉开头的 /
+            // Windows路径处理
             if (classPath.startsWith("/") && classPath.length() > 1 && classPath.charAt(2) == ':') {
                 classPath = classPath.substring(1);
             }
             
             File classFile = new File(classPath);
-            
-            // 如果是 target/classes，向上找到模块目录
             if (classFile.getAbsolutePath().contains("target/classes")) {
-                File targetDir = classFile.getParentFile().getParentFile(); // target
-                File moduleDir = targetDir.getParentFile(); // risk-warning-bert
-                if (moduleDir.exists() && moduleDir.isDirectory()) {
+                File moduleDir = classFile.getParentFile().getParentFile().getParentFile();
+                if (moduleDir.exists()) {
                     return moduleDir.getAbsolutePath();
                 }
             }
-            
-            // 如果是 jar 文件，尝试从 jar 路径推断
-            if (classPath.endsWith(".jar")) {
-                File jarFile = new File(classPath);
-                File libDir = jarFile.getParentFile();
-                if (libDir != null && libDir.getName().equals("lib")) {
-                    File moduleDir = libDir.getParentFile();
-                    if (moduleDir != null && moduleDir.exists()) {
-                        return moduleDir.getAbsolutePath();
-                    }
-                }
-            }
         } catch (Exception e) {
-            log.debug("无法通过类路径定位模块目录: {}", e.getMessage());
+            log.debug("无法定位模块目录: {}", e.getMessage());
         }
-        
         return null;
     }
 
-   
-    private List<String> buildCommand(File scriptFile) {
-        List<String> command = new ArrayList<>();
-        command.add(pythonPath);
-        command.add(scriptFile.getAbsolutePath());
-        return command;
-    }
-
-   
     private void startLogReader() {
         Thread logThread = new Thread(() -> {
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(pythonProcess.getInputStream()))) {
                 String line;
                 while (running && (line = reader.readLine()) != null) {
-                    log.info("[BERT-Service] {}", line);
+                    log.info("[Python-Service] {}", line);
                 }
             } catch (Exception e) {
                 if (running) {
@@ -254,42 +236,35 @@ public class PythonServiceManager {
             }
         });
         logThread.setDaemon(true);
-        logThread.setName("bert-service-log-reader");
+        logThread.setName("python-service-log-reader");
         logThread.start();
     }
 
-  
     private void waitForServiceReady() {
-        int maxAttempts = 60; // 最多等待60秒
-        int attempt = 0;
-
-        while (attempt < maxAttempts && running) {
+        int maxAttempts = 60;
+        for (int i = 0; i < maxAttempts && running; i++) {
             try {
                 if (checkHealth()) {
-                    log.info("Python BERT服务已就绪");
+                    log.info("Python服务已就绪");
                     return;
                 }
-                Thread.sleep(1000); // 等待1秒
-                attempt++;
+                Thread.sleep(1000);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException("等待服务就绪时被中断", e);
             }
         }
-
-        throw new RuntimeException("Python BERT服务启动超时，未能在60秒内就绪");
+        throw new RuntimeException("Python服务启动超时，60秒内未就绪");
     }
 
-  
     private boolean checkHealth() {
         try {
-            java.net.URL url = new java.net.URL("http://localhost:" + servicePort + "/health");
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+                new java.net.URL("http://localhost:" + servicePort + "/health").openConnection();
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(2000);
             conn.setReadTimeout(2000);
-            int responseCode = conn.getResponseCode();
-            return responseCode == 200;
+            return conn.getResponseCode() == 200;
         } catch (Exception e) {
             return false;
         }
@@ -301,7 +276,7 @@ public class PythonServiceManager {
                 try {
                     Thread.sleep(healthcheckInterval);
                     if (!checkHealth()) {
-                        log.warn("Python BERT服务健康检查失败，但进程仍在运行");
+                        log.warn("Python服务健康检查失败");
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -312,8 +287,36 @@ public class PythonServiceManager {
             }
         });
         healthcheckThread.setDaemon(true);
-        healthcheckThread.setName("bert-service-healthcheck");
+        healthcheckThread.setName("python-service-healthcheck");
         healthcheckThread.start();
+    }
+    
+    // ==================== 分类服务方法 ====================
+    
+    public Map<String, Object> checkClassifierHealth() {
+        String url = getPythonServiceUrl() + "/classify/health";
+        ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
+        return response.getBody();
+    }
+
+    public Map<String, Object> classify(Map<String, Object> request) {
+        String url = getPythonServiceUrl() + "/classify";
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(request, headers);
+        
+        ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+        return response.getBody();
+    }
+
+    public Map<String, Object> classifyBatch(Map<String, Object> request) {
+        String url = getPythonServiceUrl() + "/classify/batch";
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(request, headers);
+        
+        ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+        return response.getBody();
     }
 }
 

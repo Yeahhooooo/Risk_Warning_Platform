@@ -1,2 +1,7 @@
 server:
   port: 8084
+
+# BERT 分类服务配置
+bert:
+  service:
+    url: http://localhost:8090  # BERT 服务地址（Java 服务端口）
