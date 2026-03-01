@@ -11,7 +11,7 @@ public interface ReportService {
 
     IndicatorDistributionVO assembleIndicatorResult(Assessment assessment);
 
-    List<RiskVO> assembleRisk(Long assessmentId, String dimension, String riskLevel);
+    List<RiskVO> assembleRisk(Long assessmentId);
 
     AssessmentDetailVO assembleGeneral(Assessment assessment);
 }

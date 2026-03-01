@@ -146,8 +146,8 @@ public class ReportServiceImpl implements ReportService {
     }
 
     @Override
-    public List<RiskVO> assembleRisk(Long assessmentId, String dimension, String riskLevel) {
-        List<Risk> riskVOs = fetchRisksFromES(assessmentId, dimension, riskLevel);
+    public List<RiskVO> assembleRisk(Long assessmentId) {
+        List<Risk> riskVOs = fetchRisksFromES(assessmentId);
         List<RiskVO> riskVOList = new ArrayList<>();
         for(Risk risk : riskVOs) {
             RiskVO riskVO = new RiskVO();
@@ -187,7 +187,7 @@ public class ReportServiceImpl implements ReportService {
         for(RiskDimensionEnum riskDimensionEnum : RiskDimensionEnum.values()) {
             assessmentDetailVO.getDimensionRiskDistribution().put(riskDimensionEnum, new DimensionRiskDistribution());
         }
-        List<Risk> risks = fetchRisksFromES(assessment.getId(), null, null);
+        List<Risk> risks = fetchRisksFromES(assessment.getId());
         assessmentDetailVO.getIndicatorOverview().setBehaviorIndicators(risks.size());
         for(Risk risk : risks) {
             RiskDimensionEnum dimensionEnum = RiskDimensionEnum.fromValue(risk.getDimension());
@@ -217,22 +217,17 @@ public class ReportServiceImpl implements ReportService {
     }
 
 
-    private List<Risk> fetchRisksFromES(Long assessmentId, String dimension, String riskLevel) {
+    public List<Risk> fetchRisksFromES(Long assessmentId) {
         try {
             log.info("[Fetching Risks] assessmentId={}, dimension={}, riskLevel={}",
-                    assessmentId, dimension, riskLevel);
+                    assessmentId);
 
             SearchResponse<Risk> resp = esClient.search(s -> s
                             .index(ElasticSearchConfig.RISK_INDEX)
                             .size(1000)  // 假设一个项目不会超过1000个behaviors，如需要可以改成scroll
                             .query(q -> q
-                                    .term(t -> t
-                                            .field("assessment_id")
-                                            .value(assessmentId)
-                                            .field("dimension")
-                                            .value(dimension)
-                                            .field("risk_level")
-                                            .value(riskLevel)
+                                    .bool(b -> b
+                                            .must(m1 -> m1.term(t -> t.field("assessment_id").value(assessmentId)))
                                     )
                             )
                             .sort(sort -> sort

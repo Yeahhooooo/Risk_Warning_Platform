@@ -26,8 +26,8 @@ public class ReportController {
     }
 
     @GetMapping("/report/risk")
-    public Result reportRisk(@RequestParam Long assessmentId, @RequestParam (required = false) String dimension, @RequestParam(required = false) String riskLevel) {
-        return Result.success(reportService.assembleRisk(assessmentId, dimension, riskLevel));
+    public Result reportRisk(@RequestParam Long assessmentId) {
+        return Result.success(reportService.assembleRisk(assessmentId));
     }
 
     @GetMapping("/report/general/{assessmentId}")
