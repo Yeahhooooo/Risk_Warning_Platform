@@ -79,10 +79,10 @@ public class MessageTask {
 
                             // 步骤2: 批处理 - 将行为存入ES
                             log.info("▶ 步骤 2/3: 开始批处理任务，将行为数据存入ES...");
-//                            batchJob.runBatchJob(
-//                                    message.getProjectId(),
-//                                    internalFiles
-//                            );
+                            batchJob.runBatchJob(
+                                    message.getProjectId(),
+                                    internalFiles
+                            );
                             log.info("✓ 步骤 2/3 完成: 批处理任务成功，行为数据已存入ES");
 
                             // 步骤3: 发送消息到指标计算任务队列

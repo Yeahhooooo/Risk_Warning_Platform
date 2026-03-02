@@ -168,9 +168,20 @@ public class ReportServiceImpl implements ReportService {
                 log.error("评估报告已存在详细信息但反序列化失败", e);
                 throw new BusinessException("评估报告已存在详细信息但反序列化失败");
             }
-
         }
+        List<Risk> risks = fetchRisksFromES(assessment.getId());
+        return assembleGeneralWithRisks(assessment, risks);
+    }
 
+    @Override
+    public AssessmentDetailVO assembleGeneral(Assessment assessment, List<Risk> risks) {
+        return assembleGeneralWithRisks(assessment, risks != null ? risks : new ArrayList<>());
+    }
+
+    /**
+     * 根据 assessment 与风险列表构建汇总 VO（不查 ES），并正确设置 totalRisks
+     */
+    private AssessmentDetailVO assembleGeneralWithRisks(Assessment assessment, List<Risk> risks) {
         AssessmentDetailVO assessmentDetailVO = new AssessmentDetailVO();
         assessmentDetailVO.setProjectId(assessment.getProjectId());
         assessmentDetailVO.setAssessmentId(assessment.getId());
@@ -187,33 +198,39 @@ public class ReportServiceImpl implements ReportService {
         for(RiskDimensionEnum riskDimensionEnum : RiskDimensionEnum.values()) {
             assessmentDetailVO.getDimensionRiskDistribution().put(riskDimensionEnum, new DimensionRiskDistribution());
         }
-        List<Risk> risks = fetchRisksFromES(assessment.getId());
         assessmentDetailVO.getIndicatorOverview().setBehaviorIndicators(risks.size());
         for(Risk risk : risks) {
             RiskDimensionEnum dimensionEnum = RiskDimensionEnum.fromValue(risk.getDimension());
             RiskLevelEnum riskLevelEnum = risk.getRiskLevel();
             DimensionRiskDistribution distribution = assessmentDetailVO.getDimensionRiskDistribution().get(dimensionEnum);
-            distribution.setRiskCount(distribution.getRiskCount() + 1);
+            distribution.setRiskCount(nullSafe(distribution.getRiskCount()) + 1);
             switch (riskLevelEnum) {
                 case LOW_RISK:
-                    assessmentDetailVO.getRiskSummary().setLowRiskCount(distribution.getLowRiskCount() + 1);
-                    distribution.setLowRiskCount(distribution.getLowRiskCount() + 1);
+                    assessmentDetailVO.getRiskSummary().setLowRiskCount(nullSafe(assessmentDetailVO.getRiskSummary().getLowRiskCount()) + 1);
+                    distribution.setLowRiskCount(nullSafe(distribution.getLowRiskCount()) + 1);
                     break;
                 case MEDIUM_RISK:
-                    assessmentDetailVO.getRiskSummary().setMediumRiskCount(distribution.getMediumRiskCount() + 1);
-                    distribution.setMediumRiskCount(distribution.getMediumRiskCount() + 1);
+                    assessmentDetailVO.getRiskSummary().setMediumRiskCount(nullSafe(assessmentDetailVO.getRiskSummary().getMediumRiskCount()) + 1);
+                    distribution.setMediumRiskCount(nullSafe(distribution.getMediumRiskCount()) + 1);
                     break;
                 case HIGH_RISK:
-                    assessmentDetailVO.getRiskSummary().setHighRiskCount(distribution.getHighRiskCount() + 1);
-                    distribution.setHighRiskCount(distribution.getHighRiskCount() + 1);
+                    assessmentDetailVO.getRiskSummary().setHighRiskCount(nullSafe(assessmentDetailVO.getRiskSummary().getHighRiskCount()) + 1);
+                    distribution.setHighRiskCount(nullSafe(distribution.getHighRiskCount()) + 1);
                     break;
                 default:
                     log.error("riskLevelEnum error, unexpected value: {}", riskLevelEnum);
             }
         }
-
-
+        // 风险总数 = 高+中+低（与前端展示一致）
+        int total = nullSafe(assessmentDetailVO.getRiskSummary().getHighRiskCount())
+                + nullSafe(assessmentDetailVO.getRiskSummary().getMediumRiskCount())
+                + nullSafe(assessmentDetailVO.getRiskSummary().getLowRiskCount());
+        assessmentDetailVO.getRiskSummary().setTotalRisks(total);
         return assessmentDetailVO;
+    }
+
+    private static int nullSafe(Integer n) {
+        return n != null ? n : 0;
     }
 
 

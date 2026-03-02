@@ -1,6 +1,5 @@
 package com.riskwarning.processing.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.riskwarning.common.config.ElasticSearchConfig;
 import com.riskwarning.common.constants.RedisKey;
 import com.riskwarning.common.enums.AssessmentStatusEnum;
@@ -27,9 +26,8 @@ import com.riskwarning.processing.util.behavior.QualitativeCalculator;
 import com.riskwarning.processing.util.behavior.QuantitativeCalculator;
 import com.riskwarning.processing.util.behavior.RegWeightCalculator;
 import com.riskwarning.processing.util.behavior.SimilarityCalculator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-
-
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -83,6 +81,9 @@ public class BehaviorProcessingService {
 
     @Autowired
     private KafkaUtils kafkaUtils;
+
+    @Autowired
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     // 简化后：使用带相似度的候选项（Scored<T>），直接根据相似度与适用性判断是否影响指标
     public static class Scored<T> {
@@ -221,11 +222,15 @@ public class BehaviorProcessingService {
                 } catch (Exception e) {
                     log.error("[Behavior Processing Failed] behaviorId={}, error={}", behavior.getId(), e.getMessage());
                 } finally {
-                    // redis原子性计数
-                    long alCount = redisUtil.incr(String.format(RedisKey.REDIS_KEY_BEHAVIOR_PROCESSING_COUNT, projectId), 1);
-                    // TODO: 修改为检测count == es内该项目行为数目
-                    if(alCount == 5){
-                        completeAssessmentIfNeeded(userId, projectId, assessmentId);
+                    try {
+                        // redis原子性计数
+                        long alCount = redisUtil.incr(String.format(RedisKey.REDIS_KEY_BEHAVIOR_PROCESSING_COUNT, projectId), 1);
+                        // TODO: 修改为检测count == es内该项目行为数目
+                        if (alCount == 5) {
+                            completeAssessmentIfNeeded(userId, projectId, assessmentId);
+                        }
+                    } catch (Exception redisEx) {
+                        log.warn("[Redis count failed] projectId={}, will not trigger assessment complete; error={}", projectId, redisEx.getMessage());
                     }
                 }
             });
@@ -297,7 +302,16 @@ public class BehaviorProcessingService {
                             existing.setCalculatedAt(LocalDateTime.now());
                             indicatorResultDetail.getRelatedIndicators().add(ri);
                             existing.setCalculationDetails(indicatorResultDetail);
-                            int updateRes = indicatorResultRepository.updateWithOptimisticLock(existing, oldCalculatedAt);
+                            String calculationDetailsJson = objectMapper.writeValueAsString(indicatorResultDetail);
+                            String riskStatusDbValue = existing.getRiskStatus() != null
+                                    ? existing.getRiskStatus().getDbValue()
+                                    : IndicatorRiskStatus.fromCode("NOT_EVALUATED").getDbValue();
+                            int updateRes = indicatorResultRepository.updateWithOptimisticLock(
+                                    existing,
+                                    calculationDetailsJson,
+                                    riskStatusDbValue,
+                                    oldCalculatedAt
+                            );
                             if( updateRes == 0) {
                                 log.warn("[Indicator Result Update Failed] behaviorId={}, indicatorEsId={}, retrying...",
                                         behaviorId, indicatorEsId);
@@ -728,7 +742,7 @@ public class BehaviorProcessingService {
 
     // 新增用于构建 calculation_details 的简单 JSON
     private ObjectNode buildCalculationDetails(double score, List<String> influencingRegs) {
-        ObjectNode node = new ObjectMapper().createObjectNode();
+        ObjectNode node = objectMapper.createObjectNode();
         node.put("score", score);
         if (influencingRegs != null) {
             node.putPOJO("influencingRegulations", influencingRegs);
