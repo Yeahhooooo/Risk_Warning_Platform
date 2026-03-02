@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -42,6 +43,7 @@ public interface IndicatorResultRepository extends JpaRepository<IndicatorResult
      * @return 更新影响的行数，1表示更新成功，0表示更新失败（版本冲突）
      */
     @Modifying
+    @Transactional
     @Query(value = "UPDATE t_indicator_result SET " +
             "project_id = :#{#result.projectId}, " +
             "assessment_id = :#{#result.assessmentId}, " +
@@ -53,14 +55,16 @@ public interface IndicatorResultRepository extends JpaRepository<IndicatorResult
             "calculated_score = :#{#result.calculatedScore}, " +
             "max_possible_score = :#{#result.maxPossibleScore}, " +
             "used_calculation_rule_type = :#{#result.usedCalculationRuleType}, " +
-            "calculation_details = CAST(:#{#result.calculationDetails} AS jsonb), " +
+            "calculation_details = CAST(:calculationDetailsJson AS jsonb), " +
             "risk_triggered = :#{#result.riskTriggered}, " +
-            "risk_status = CAST(:#{#result.riskStatus} AS indicator_risk_status_enum), " +
+            "risk_status = CAST(:riskStatus AS indicator_risk_status_enum), " +
             "calculated_at = :#{#result.calculatedAt} " +
             "WHERE id = :#{#result.id} AND calculated_at = :oldCalculatedAt",
             nativeQuery = true)
     int updateWithOptimisticLock(
             @Param("result") IndicatorResult result,
+            @Param("calculationDetailsJson") String calculationDetailsJson,
+            @Param("riskStatus") String riskStatus,
             @Param("oldCalculatedAt") LocalDateTime oldCalculatedAt
     );
 

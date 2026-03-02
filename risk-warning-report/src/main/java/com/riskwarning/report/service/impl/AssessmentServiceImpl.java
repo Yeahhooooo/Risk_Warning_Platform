@@ -5,6 +5,7 @@ import co.elastic.clients.elasticsearch.core.BulkResponse;
 import com.alibaba.fastjson2.JSON;
 import com.riskwarning.common.config.ElasticSearchConfig;
 import com.riskwarning.common.enums.AssessmentStatusEnum;
+import com.riskwarning.common.enums.indicator.IndicatorRiskStatus;
 import com.riskwarning.common.enums.risk.RiskLevelEnum;
 import com.riskwarning.common.enums.risk.RiskStatusEnum;
 import com.riskwarning.common.message.NotificationMessage;
@@ -72,6 +73,8 @@ public class AssessmentServiceImpl implements AssessmentService {
                 lowRiskCount += riskLevelEnum == RiskLevelEnum.LOW_RISK ? 1 : 0;
                 mediumRiskCount += riskLevelEnum == RiskLevelEnum.MEDIUM_RISK ? 1 : 0;
                 highRiskCount += riskLevelEnum == RiskLevelEnum.HIGH_RISK ? 1 : 0;
+                ir.setRiskTriggered(true);
+                ir.setRiskStatus(IndicatorRiskStatus.EVALUATED);
                 Risk risk = Risk.builder()
                         .projectId(projectId)
                         .assessmentId(assessmentId)
@@ -93,6 +96,9 @@ public class AssessmentServiceImpl implements AssessmentService {
                 risks.add(risk);
             }
         }
+
+        // 持久化指标结果的“触发风险”状态，供指标概览/分布统计使用
+        indicatorResultRepository.saveAll(indicatorResults);
 
         try {
             BulkResponse response = elasticsearchClient.bulk(b -> {
@@ -120,7 +126,7 @@ public class AssessmentServiceImpl implements AssessmentService {
         assessment.setOverallRiskLevel(RiskLevelEnum.getByRiskCount(lowRiskCount, mediumRiskCount, highRiskCount));
         assessment.setStatus(AssessmentStatusEnum.ASSESSED);
         assessment.setDetails(JSON.toJSONString(new AssessmentGeneralDetails(
-                reportService.assembleGeneral(assessment),
+                reportService.assembleGeneral(assessment, risks),
                 reportService.assembleIndicatorResult(assessment)
         )));
         assessment.setAssessmentDate(LocalDateTime.now());
