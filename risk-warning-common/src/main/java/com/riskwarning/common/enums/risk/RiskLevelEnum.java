@@ -1,5 +1,8 @@
 package com.riskwarning.common.enums.risk;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
+
 public enum RiskLevelEnum {
 
     LOW_RISK("LOW_RISK", "低风险"),
@@ -23,6 +26,7 @@ public enum RiskLevelEnum {
         this.description = description;
     }
 
+    @JsonValue
     public String getCode() {
         return code;
     }
@@ -31,9 +35,13 @@ public enum RiskLevelEnum {
         return description;
     }
 
+    @JsonCreator
     public static RiskLevelEnum fromValue(String riskLevel) {
+        if (riskLevel == null) {
+            return null;
+        }
         for (RiskLevelEnum level : RiskLevelEnum.values()) {
-            if (level.name().equalsIgnoreCase(riskLevel)) {
+            if (level.code.equalsIgnoreCase(riskLevel) || level.name().equalsIgnoreCase(riskLevel)) {
                 return level;
             }
         }

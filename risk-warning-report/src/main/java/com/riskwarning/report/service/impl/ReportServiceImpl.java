@@ -147,11 +147,18 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     public List<RiskVO> assembleRisk(Long assessmentId) {
-        List<Risk> riskVOs = fetchRisksFromES(assessmentId);
+        List<Risk> risks = fetchRisksFromES(assessmentId);
         List<RiskVO> riskVOList = new ArrayList<>();
-        for(Risk risk : riskVOs) {
+        for(Risk risk : risks) {
             RiskVO riskVO = new RiskVO();
             BeanUtils.copyProperties(risk, riskVO);
+            // BeanUtils.copyProperties 不会自动将枚举类型转为 String，需要手动设置
+            if (risk.getRiskLevel() != null) {
+                riskVO.setRiskLevel(risk.getRiskLevel().name());
+            }
+            if (risk.getStatus() != null) {
+                riskVO.setStatus(risk.getStatus().name());
+            }
             riskVOList.add(riskVO);
         }
         return riskVOList;
@@ -202,6 +209,10 @@ public class ReportServiceImpl implements ReportService {
         for(Risk risk : risks) {
             RiskDimensionEnum dimensionEnum = RiskDimensionEnum.fromValue(risk.getDimension());
             RiskLevelEnum riskLevelEnum = risk.getRiskLevel();
+            if (riskLevelEnum == null) {
+                log.warn("[assembleGeneral] risk_level is null for risk id={}, skipping risk level aggregation", risk.getId());
+                continue;
+            }
             DimensionRiskDistribution distribution = assessmentDetailVO.getDimensionRiskDistribution().get(dimensionEnum);
             distribution.setRiskCount(nullSafe(distribution.getRiskCount()) + 1);
             switch (riskLevelEnum) {

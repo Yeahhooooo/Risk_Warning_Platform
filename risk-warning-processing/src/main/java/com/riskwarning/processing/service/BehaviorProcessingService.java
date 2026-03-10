@@ -535,32 +535,28 @@ public class BehaviorProcessingService {
 
     /**
      * 对单个法规进行定性/定量计算
-     * 优先使用定量计算（如果法规和行为都有定量数据），否则使用定性计算
+
      */
     private double computeRegulationScore(Behavior behavior, Regulation regulation) {
         // 判断是否有定量数据
-        boolean hasQuantitativeData = regulation.getQuantitativeIndicator() != null
-                && behavior != null
-                && behavior.getQuantitativeData() != null;
+        //TODO
+        boolean hasQuantitativeData = Objects.equals(regulation.getType(), "定量") ||Objects.equals(behavior.getType(), "定量");
 
         if (hasQuantitativeData) {
             // 定量计算：根据法规定量指标和行为定量数据计算
-            double quantitativeScore = QuantitativeCalculator.computeQuantitativeScore(
+            return QuantitativeCalculator.computeQuantitativeScore(
                     regulation.getQuantitativeIndicator(),
                     behavior.getQuantitativeData(),
                     regulation.getDirection(),
                     behavior.getStatus()
             );
-
-            return quantitativeScore;
         } else {
             // 定性计算：根据法规方向和行为状态矩阵计算
-            double qualitativeScore = QualitativeCalculator.computeQualitativeScore(
-                    regulation.getDirection(),
-                    behavior != null ? behavior.getStatus() : null
-            );
 
-            return qualitativeScore;
+            return QualitativeCalculator.computeQualitativeScore(
+                    regulation.getDirection(),
+                    behavior.getStatus()
+            );
         }
     }
 
@@ -588,7 +584,8 @@ public class BehaviorProcessingService {
             SearchResponse<Behavior> resp = esClient.search(s -> s
                             .index(ElasticSearchConfig.BEHAVIOR_INDEX)
                             .size(fetchSize)
-                            .query(q -> q.matchAll(ma -> ma)),
+//                            .query(q -> q.matchAll(ma -> ma)),
+                            .query(q -> q.bool(ma -> ma.must(m1 ->m1.term(t->t.field("project_id").value(projectId))))),
                     Behavior.class
             );
 
@@ -623,52 +620,7 @@ public class BehaviorProcessingService {
         }
     }
 
-    /**
-     * 从 ES 获取指定项目的所有 behaviors
-     * 注意：当前ES中projectId都是null，此方法暂时不可用，请使用 fetchRandomBehaviors
-     */
-    private List<Behavior> fetchBehaviorsByProjectId(Long projectId) {
-        try {
-            log.info("[Fetching Behaviors from ES] projectId={}, index={}", projectId, ElasticSearchConfig.BEHAVIOR_INDEX);
 
-            SearchResponse<Behavior> resp = esClient.search(s -> s
-                            .index(ElasticSearchConfig.BEHAVIOR_INDEX)
-                            .size(1000)  // 假设一个项目不会超过1000个behaviors，如需要可以改成scroll
-                            .query(q -> q
-                                    .term(t -> t
-                                            .field("project_id")
-                                            .value(projectId)
-                                    )
-                            )
-                            .sort(sort -> sort
-                                    .field(f -> f
-                                            .field("behavior_date")
-                                            .order(co.elastic.clients.elasticsearch._types.SortOrder.Desc)
-                                    )
-                            ),
-                    Behavior.class
-            );
-
-            List<Behavior> behaviors = new ArrayList<>();
-            if (resp != null && resp.hits() != null && resp.hits().hits() != null) {
-                for (Hit<Behavior> hit : resp.hits().hits()) {
-                    Behavior behavior = hit.source();
-                    if (behavior != null) {
-                        behaviors.add(behavior);
-                        log.debug("[Behavior Fetched] behaviorId={}, description={}",
-                                behavior.getId(), behavior.getDescription());
-                    }
-                }
-            }
-
-            log.info("[Behaviors Fetched from ES] projectId={}, count={}", projectId, behaviors.size());
-            return behaviors;
-
-        } catch (Exception e) {
-            log.error("[Fetching Behaviors Failed] projectId={}, error={}", projectId, e.getMessage(), e);
-            return Collections.emptyList();
-        }
-    }
 
     // 新增：从 ES 拉取候选指标：简单的文本多字段匹配，返回 ES hit score 作为相似度
     public List<Scored<Indicator>> fetchTopIndicators(Behavior behavior, int candidateSize) {
