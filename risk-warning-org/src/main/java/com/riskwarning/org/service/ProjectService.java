@@ -3,6 +3,7 @@ package com.riskwarning.org.service;
 
 import com.riskwarning.common.dto.project.ProjectMemberResponse;
 import com.riskwarning.common.po.project.Project;
+import com.riskwarning.common.po.report.Assessment;
 
 import java.util.List;
 
@@ -46,4 +47,12 @@ public interface ProjectService {
      * @return 项目成员列表
      */
     List<ProjectMemberResponse> getProjectMembers(Long projectId);
+
+    /**
+     * 根据项目ID查询评估记录
+     *
+     * @param projectId 项目ID
+     * @return 评估记录
+     */
+    Assessment getAssessmentByProjectId(Long projectId);
 }

@@ -12,6 +12,7 @@ import com.riskwarning.common.result.Result;
 import com.riskwarning.common.dto.project.ProjectCreateRequest;
 import com.riskwarning.common.dto.project.ProjectMemberResponse;
 import com.riskwarning.common.po.project.Project;
+import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.org.service.ProjectService;
 import org.springframework.web.bind.annotation.*;
 
@@ -88,5 +89,16 @@ public class ProjectController {
     @GetMapping("/{projectId}/members")
     public Result<List<ProjectMemberResponse>> getProjectMembers(@PathVariable Long projectId) {
         return Result.success(projectService.getProjectMembers(projectId));
+    }
+
+    /**
+     * 根据项目ID查询评估记录
+     *
+     * @param projectId 项目ID
+     * @return 评估记录
+     */
+    @GetMapping("/{projectId}/assessment")
+    public Result<Assessment> getAssessmentByProjectId(@PathVariable Long projectId) {
+        return Result.success(projectService.getAssessmentByProjectId(projectId));
     }
 }
