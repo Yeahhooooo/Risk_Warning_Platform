@@ -41,6 +41,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @Slf4j
@@ -156,9 +161,7 @@ public class BehaviorProcessingService {
      * 新方法：传入 projectId 和 assessmentId，从 ES 获取该项目的 behaviors，
      * 使用传入的 assessmentId 进行评估，不再创建新的 assessment
      *
-     * 临时修改：由于ES中behaviors的projectId为null，改为随机获取5个行为并设置projectId为7
-     *
-     * 注意：移除 @Transactional，因为此方法可能在线程池中调用
+     * 修改：使用批量处理方式，收集所有计算结果后批量更新，避免乐观锁冲突
      *
      * @param projectId 项目ID
      * @param assessmentId 评估ID（由调用方创建并传入）
@@ -170,70 +173,283 @@ public class BehaviorProcessingService {
         updateAssessmentStatus(assessmentId, AssessmentStatusEnum.ASSESSING);
         log.info("[Process Project START] projectId={}, assessmentId={} (传入)", projectId, assessmentId);
 
-        // 1. 从 ES 随机获取 behaviors
-        //TODO:待修改
+        // 1. 从 ES 获取该项目的所有 behaviors
         List<Behavior> behaviors = fetchRandomBehaviors(5, projectId);
+        int totalBehaviorCount = behaviors.size();
 
         if (behaviors.isEmpty()) {
             throw new IllegalArgumentException("No behaviors found for projectId: " + projectId);
         }
 
-        // 2. 使用传入的 assessmentId，不再创建新的 assessment
         log.info("[使用传入的 Assessment] assessmentId={}, projectId={}, behaviorCount={}",
                 assessmentId, projectId, behaviors.size());
 
-        for (Behavior behavior : behaviors) {
+        // 2. 使用线程安全的 Map 收集计算结果
+        Map<String, List<RelatedIndicator>> indicatorResultsMap = new ConcurrentHashMap<>();
+        Map<String, IndicatorMetadataDTO> indicatorMetadataMap = new ConcurrentHashMap<>();
+        
+        // 3. 使用 CountDownLatch 等待所有行为处理完成
+        CountDownLatch latch = new CountDownLatch(totalBehaviorCount);
+        
+        // 4. 批量大小：每处理100个行为就批量更新一次
+        int batchSize = 100;
+        AtomicInteger processedCount = new AtomicInteger(0);
+
+        log.info("[Processing Start] 开始处理 {} 个行为，使用线程池大小：{}", 
+                totalBehaviorCount, behaviorThreadPoolExecutor.getCorePoolSize());
+        log.info("[ThreadPool Status] 核心线程数={}, 最大线程数={}, 队列容量={}, 当前活跃线程数={}, 队列大小={}", 
+                behaviorThreadPoolExecutor.getCorePoolSize(),
+                behaviorThreadPoolExecutor.getMaxPoolSize(),
+                behaviorThreadPoolExecutor.getThreadPoolExecutor().getQueue().remainingCapacity(),
+                behaviorThreadPoolExecutor.getActiveCount(),
+                behaviorThreadPoolExecutor.getThreadPoolExecutor().getQueue().size());
+
+        for (int i = 0; i < behaviors.size(); i++) {
+            final Behavior behavior = behaviors.get(i);
+            final int behaviorIndex = i;
+            
             behaviorThreadPoolExecutor.execute(() -> {
                 try {
-                    // ✅ 诊断：检查计算阶段是否有事务
-
+                    log.info("[Behavior Processing] 开始处理第 {} 个行为，behaviorId={}", 
+                            behaviorIndex + 1, behavior.getId());
+                    
                     // 并发进行计算：获取候选指标和法规
+                    log.debug("[Behavior Processing] 正在获取候选指标和法规，behaviorId={}", behavior.getId());
                     List<Scored<Indicator>> indicators = fetchTopIndicators(behavior, 6);
                     List<Scored<Regulation>> regulations = fetchTopRegulations(behavior, 10);
-
+                    log.debug("[Behavior Processing] 获取到 {} 个指标和 {} 个法规，behaviorId={}", 
+                            indicators.size(), regulations.size(), behavior.getId());
 
                     // 只计算，不保存
+                    log.debug("[Behavior Processing] 正在计算映射结果，behaviorId={}", behavior.getId());
                     DocumentProcessingResult.MappingResult result = computeMappingFromCandidates(behavior, indicators, regulations);
+                    log.debug("[Behavior Processing] 计算完成，result={}, behaviorId={}", 
+                            result != null ? "有结果" : "无结果", behavior.getId());
 
-                    // ✅ 提取元数据为 DTO，不传递 JPA Entity
-                    String behaviorId = behavior.getId();
-                    Map<String, IndicatorMetadataDTO> indicatorMetadata = new HashMap<>();
-                    for (Scored<Indicator> s : indicators) {
-                        if (s.getItem() != null && s.getItem().getId() != null) {
-                            Indicator ind = s.getItem();
-                            indicatorMetadata.put(ind.getId(), new IndicatorMetadataDTO(
-                                ind.getId(),
-                                ind.getName(),
-                                ind.getIndicatorLevel(),
-                                ind.getDimension(),
-                                ind.getType(),
-                                ind.getMaxScore()
-                            ));
+                    if (result != null && result.getRelatedIndicators() != null) {
+                        // 提取元数据
+                        for (Scored<Indicator> s : indicators) {
+                            if (s.getItem() != null && s.getItem().getId() != null) {
+                                Indicator ind = s.getItem();
+                                indicatorMetadataMap.putIfAbsent(ind.getId(), new IndicatorMetadataDTO(
+                                    ind.getId(),
+                                    ind.getName(),
+                                    ind.getIndicatorLevel(),
+                                    ind.getDimension(),
+                                    ind.getType(),
+                                    ind.getMaxScore()
+                                ));
+                            }
                         }
+                        
+                        // 收集计算结果到 Map 中
+                        int relatedCount = result.getRelatedIndicators().size();
+                        for (Map.Entry<String, RelatedIndicator> entry : result.getRelatedIndicators().entrySet()) {
+                            String indicatorId = entry.getKey();
+                            RelatedIndicator ri = entry.getValue();
+                            
+                            indicatorResultsMap.computeIfAbsent(indicatorId, k -> new CopyOnWriteArrayList<>())
+                                              .add(ri);
+                        }
+                        log.info("[Behavior Processing] 收集到 {} 个相关指标，behaviorId={}", 
+                                relatedCount, behavior.getId());
+                    } else {
+                        log.info("[Behavior Processing] 无相关指标，behaviorId={}", behavior.getId());
                     }
-                    // ✅ 诊断：检查提取元数据后是否有事务
-                    // 保存计算结果
-                    BehaviorCalculationResult calcResult = new BehaviorCalculationResult(
-                            behaviorId,
-                            indicatorMetadata,
-                            result
-                    );
-                    saveIndicatorResult(calcResult, projectId, assessmentId);
+                    
+                    // 检查是否需要批量处理
+                    int currentCount = processedCount.incrementAndGet();
+                    if (currentCount % 10 == 0) {
+                        log.info("[Progress] 已处理 {}/{} 个行为，完成率：{:.2f}%，活跃线程数：{}", 
+                                currentCount, totalBehaviorCount, 
+                                (currentCount * 100.0) / totalBehaviorCount,
+                                behaviorThreadPoolExecutor.getActiveCount());
+                    }
+                    
+                    if (currentCount % batchSize == 0) {
+                        log.info("[Batch Processing] 已处理 {}/{} 个行为，开始批量更新指标结果", 
+                                currentCount, totalBehaviorCount);
+                        batchSaveIndicatorResults(indicatorResultsMap, indicatorMetadataMap, projectId, assessmentId);
+                        // 清空已处理的结果，避免重复处理
+                        indicatorResultsMap.clear();
+                        log.info("[Batch Processing] 批量更新完成，已清空结果Map", 
+                                currentCount, totalBehaviorCount);
+                    }
+                    
+                    log.info("[Behavior Processing] 完成处理第 {} 个行为，behaviorId={}", 
+                            behaviorIndex + 1, behavior.getId());
+                    
                 } catch (Exception e) {
-                    log.error("[Behavior Processing Failed] behaviorId={}, error={}", behavior.getId(), e.getMessage());
+                    log.error("[Behavior Processing Failed] behaviorId={}, error={}", behavior.getId(), e.getMessage(), e);
                 } finally {
-                    try {
-                        // redis原子性计数
-                        long alCount = redisUtil.incr(String.format(RedisKey.REDIS_KEY_BEHAVIOR_PROCESSING_COUNT, projectId), 1);
-                        // TODO: 修改为检测count == es内该项目行为数目
-                        if (alCount == 5) {
-                            completeAssessmentIfNeeded(userId, projectId, assessmentId);
-                        }
-                    } catch (Exception redisEx) {
-                        log.warn("[Redis count failed] projectId={}, will not trigger assessment complete; error={}", projectId, redisEx.getMessage());
-                    }
+                    long remaining = latch.getCount();
+                    latch.countDown();
+                    log.debug("[CountDown] 剩余 {} 个行为待处理", latch.getCount());
                 }
             });
+        }
+
+        // 5. 等待所有行为处理完成
+        try {
+            log.info("[Waiting] 等待所有行为处理完成，总行为数：{}", totalBehaviorCount);
+            
+            // 定期输出等待状态
+            long startTime = System.currentTimeMillis();
+            while (latch.getCount() > 0) {
+                boolean completed = latch.await(30, TimeUnit.SECONDS); // 每30秒检查一次
+                
+                long elapsed = (System.currentTimeMillis() - startTime) / 1000;
+                long remaining = latch.getCount();
+                int processed = totalBehaviorCount - (int)remaining;
+                
+                log.info("[Waiting Status] 已处理 {}/{} 个行为，剩余 {} 个，已等待 {} 秒，活跃线程数：{}", 
+                        processed, totalBehaviorCount, remaining, elapsed, 
+                        behaviorThreadPoolExecutor.getActiveCount());
+                
+                if (completed) {
+                    break;
+                }
+                
+                // 如果等待超过30分钟，强制退出
+                if (elapsed > 1800) {
+                    log.error("[Waiting Timeout] 等待超时（30分钟），强制退出");
+                    break;
+                }
+            }
+            
+            if (latch.getCount() == 0) {
+                log.info("[All Behaviors Processed] 共处理 {} 个行为，全部完成", totalBehaviorCount);
+            } else {
+                log.warn("[Processing Timeout] 处理超时，可能有行为未完成处理，剩余 {} 个", latch.getCount());
+            }
+            
+            // 6. 处理剩余的结果（不足 batchSize 的部分）
+            if (!indicatorResultsMap.isEmpty()) {
+                int remainingCount = indicatorResultsMap.size();
+                log.info("[Final Batch Processing] 处理剩余 {} 个指标结果", remainingCount);
+                batchSaveIndicatorResults(indicatorResultsMap, indicatorMetadataMap, projectId, assessmentId);
+                log.info("[Final Batch Processing] 剩余结果处理完成");
+            } else {
+                log.info("[Final Batch Processing] 无剩余结果需要处理");
+            }
+            
+            // 7. 完成评估
+            log.info("[Assessment Completing] 开始完成评估流程");
+            completeAssessmentIfNeeded(userId, projectId, assessmentId);
+            log.info("[Assessment Completed] 评估流程已完成");
+            
+        } catch (InterruptedException e) {
+            log.error("[Process Interrupted] projectId={}, error={}", projectId, e.getMessage());
+            Thread.currentThread().interrupt();
+        }
+    }
+    
+    /**
+     * 批量保存指标结果
+     */
+    private void batchSaveIndicatorResults(Map<String, List<RelatedIndicator>> indicatorResultsMap,
+                                           Map<String, IndicatorMetadataDTO> indicatorMetadataMap,
+                                           Long projectId, Long assessmentId) {
+        if (indicatorResultsMap.isEmpty()) {
+            log.info("[Batch Save] 无指标结果需要保存");
+            return;
+        }
+        
+        try {
+            log.info("[Batch Save] 开始批量保存，共 {} 个指标", indicatorResultsMap.size());
+            List<IndicatorResult> resultsToSave = new ArrayList<>();
+            
+            int processedIndicators = 0;
+            for (Map.Entry<String, List<RelatedIndicator>> entry : indicatorResultsMap.entrySet()) {
+                String indicatorId = entry.getKey();
+                List<RelatedIndicator> relatedIndicators = entry.getValue();
+                
+                if (relatedIndicators.isEmpty()) {
+                    continue;
+                }
+                
+                processedIndicators++;
+                if (processedIndicators % 10 == 0) {
+                    log.info("[Batch Save] 已处理 {} 个指标", processedIndicators);
+                }
+                
+                // 计算平均得分
+                double totalScore = 0;
+                for (RelatedIndicator ri : relatedIndicators) {
+                    totalScore += ri.getScore();
+                }
+                double avgScore = totalScore / relatedIndicators.size();
+                
+                // 获取指标元数据
+                IndicatorMetadataDTO metadata = indicatorMetadataMap.get(indicatorId);
+                double maxPossible = 100.0;
+                if (metadata != null && metadata.maxScore != null && metadata.maxScore > 0) {
+                    maxPossible = metadata.maxScore;
+                }
+                double absoluteScore = avgScore * maxPossible;
+                
+                // 检查是否已存在
+                Optional<IndicatorResult> existingResult = indicatorResultRepository
+                        .findByAssessmentIdAndIndicatorEsId(assessmentId, indicatorId);
+                
+                if (existingResult.isPresent()) {
+                    // 更新现有记录
+                    IndicatorResult existing = existingResult.get();
+                    IndicatorResultDetail detail = existing.getCalculationDetails();
+                    if (detail == null) {
+                        detail = IndicatorResultDetail.builder()
+                                .relatedIndicators(new ArrayList<>())
+                                .build();
+                    }
+                    
+                    // 合并相关指标
+                    int existingCount = detail.getRelatedIndicators().size();
+                    double existingScore = existing.getCalculatedScore();
+                    double newAvgScore = (existingScore * existingCount + absoluteScore) / (existingCount + relatedIndicators.size());
+                    
+                    existing.setCalculatedScore(newAvgScore);
+                    existing.setCalculatedAt(LocalDateTime.now());
+                    detail.getRelatedIndicators().addAll(relatedIndicators);
+                    existing.setCalculationDetails(detail);
+                    
+                    resultsToSave.add(existing);
+                } else {
+                    // 创建新记录
+                    IndicatorResult result = IndicatorResult.builder()
+                            .projectId(projectId)
+                            .assessmentId(assessmentId)
+                            .indicatorEsId(indicatorId)
+                            .indicatorName(metadata != null ? metadata.name : indicatorId)
+                            .indicatorLevel(metadata != null && metadata.indicatorLevel != null ? metadata.indicatorLevel : 0)
+                            .dimension(metadata != null ? metadata.dimension : null)
+                            .type(metadata != null ? metadata.type : null)
+                            .calculatedScore(absoluteScore)
+                            .maxPossibleScore(maxPossible)
+                            .usedCalculationRuleType("auto")
+                            .calculationDetails(IndicatorResultDetail.builder()
+                                    .relatedIndicators(new ArrayList<>(relatedIndicators))
+                                    .build())
+                            .riskTriggered(false)
+                            .riskStatus(IndicatorRiskStatus.fromCode("NOT_EVALUATED"))
+                            .calculatedAt(LocalDateTime.now())
+                            .createdAt(LocalDateTime.now())
+                            .build();
+                    
+                    resultsToSave.add(result);
+                }
+            }
+            
+            // 批量保存
+            if (!resultsToSave.isEmpty()) {
+                log.info("[Batch Save] 准备保存 {} 个指标结果", resultsToSave.size());
+                indicatorResultRepository.saveAll(resultsToSave);
+                log.info("[Batch Save Success] 保存了 {} 个指标结果", resultsToSave.size());
+            } else {
+                log.info("[Batch Save] 无指标结果需要保存");
+            }
+            
+        } catch (Exception e) {
+            log.error("[Batch Save Failed] error={}", e.getMessage(), e);
         }
     }
 
@@ -363,8 +579,8 @@ public class BehaviorProcessingService {
                 projectId,
                 assessmentId
         );
-        redisUtil.del(String.format(RedisKey.REDIS_KEY_BEHAVIOR_PROCESSING_COUNT, projectId));
         kafkaUtils.sendMessage(assessmentCompletedEventMessage);
+        log.info("[Assessment Completed] projectId={}, assessmentId={}", projectId, assessmentId);
     }
 
     // 改名：保留原 compute-only 方法（不入库），接收带分数的候选列表
@@ -574,17 +790,18 @@ public class BehaviorProcessingService {
     }
 
     /**
-     * 从 ES 中随机获取指定数量的 behaviors 并设置 projectId
-     * 临时方案：由于ES中所有behavior的projectId为null，使用随机查询
+     * 从 ES 中获取指定 projectId 的所有 behaviors
+     * 修改：处理所有行为，不再随机选择
      */
     private List<Behavior> fetchRandomBehaviors(int count, Long projectId) {
         try {
-            int fetchSize = Math.min(count * 5, 100);
+            // 修改：使用 scroll API 或更大的 size 来获取所有行为
+            // 这里先设置一个较大的值，实际项目中可能需要使用 scroll API
+            int fetchSize = 10000;
 
             SearchResponse<Behavior> resp = esClient.search(s -> s
                             .index(ElasticSearchConfig.BEHAVIOR_INDEX)
                             .size(fetchSize)
-//                            .query(q -> q.matchAll(ma -> ma)),
                             .query(q -> q.bool(ma -> ma.must(m1 ->m1.term(t->t.field("project_id").value(projectId))))),
                     Behavior.class
             );
@@ -599,23 +816,27 @@ public class BehaviorProcessingService {
                 }
             }
 
-            // 在Java中进行随机选择
+            // 修改：处理所有行为，不再随机选择
             List<Behavior> selectedBehaviors = new ArrayList<>();
             if (!allBehaviors.isEmpty()) {
-                Collections.shuffle(allBehaviors, new Random(System.currentTimeMillis()));
-                int selectCount = Math.min(count, allBehaviors.size());
+                // 注释掉随机排序逻辑
+                // Collections.shuffle(allBehaviors, new Random(System.currentTimeMillis()));
+                // int selectCount = Math.min(count, allBehaviors.size());
 
-                for (int i = 0; i < selectCount; i++) {
-                    Behavior behavior = allBehaviors.get(i);
+                // 处理所有行为
+                for (Behavior behavior : allBehaviors) {
                     behavior.setProjectId(projectId);
                     selectedBehaviors.add(behavior);
                 }
             }
 
+            log.info("[Fetch Behaviors] projectId={}, totalCount={}, selectedCount={}", 
+                    projectId, allBehaviors.size(), selectedBehaviors.size());
+
             return selectedBehaviors;
 
         } catch (Exception e) {
-            log.error("[Fetch Random Behaviors Failed] error={}", e.getMessage());
+            log.error("[Fetch Behaviors Failed] error={}", e.getMessage());
             return Collections.emptyList();
         }
     }
