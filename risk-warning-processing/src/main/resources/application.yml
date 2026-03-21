@@ -5,3 +5,8 @@ server:
 bert:
   service:
     url: http://localhost:8090  # BERT 服务地址（Java 服务端口）
+
+# Knowledge 向量化服务配置
+knowledge:
+  service:
+    url: http://localhost:8089  # Knowledge 服务地址
