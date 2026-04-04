@@ -17,15 +17,15 @@ COPY risk-warning-common/pom.xml ./risk-warning-common/pom.xml
 COPY risk-warning-common/src ./risk-warning-common/src
 
 # 复制子模块的POM和源码
-COPY risk-warning-gateway/pom.xml ./risk-warning-gateway/pom.xml
-COPY risk-warning-gateway/src ./risk-warning-gateway/src
+COPY risk-warning-org/pom.xml ./risk-warning-org/pom.xml
+COPY risk-warning-org/src ./risk-warning-org/src
 
 # 构建common模块
 WORKDIR /app/risk-warning-common
 RUN mvn clean install -DskipTests -U
 
 # 构建当前模块
-WORKDIR /app/risk-warning-gateway
+WORKDIR /app/risk-warning-org
 RUN mvn dependency:go-offline -B -U
 # 先执行package，再执行spring-boot:repackage确保生成可执行jar
 RUN mvn clean package spring-boot:repackage -DskipTests -U
@@ -33,7 +33,7 @@ RUN mvn clean package spring-boot:repackage -DskipTests -U
 # 第二阶段：运行阶段
 FROM eclipse-temurin:17.0.18_8-jre
 WORKDIR /app
-COPY --from=builder /app/risk-warning-gateway/target/*.jar app.jar
+COPY --from=builder /app/risk-warning-org/target/*.jar app.jar
 RUN useradd -m appuser
 USER appuser
 ENTRYPOINT ["java", "-jar", "app.jar"]
