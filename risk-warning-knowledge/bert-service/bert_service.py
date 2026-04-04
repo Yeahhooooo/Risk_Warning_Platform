@@ -103,7 +103,7 @@ if __name__ == '__main__':
     load_model()
     
     # 启动服务
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("PORT", 8001))
     host = os.getenv("HOST", "0.0.0.0")
     app.run(host=host, port=port, debug=False)
 

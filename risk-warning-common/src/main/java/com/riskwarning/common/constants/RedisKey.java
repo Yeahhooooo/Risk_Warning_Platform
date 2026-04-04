@@ -19,5 +19,7 @@ public class RedisKey {
 
     public static final String REDIS_KEY_BEHAVIOR_PROCESSING_COUNT = "project:%d:behavior:processing:count";
 
+    public static final String REDIS_KEY_BEHAVIOR_PROCESSING_TOTAL = "project:%d:behavior:processing:total";
+
 
 }

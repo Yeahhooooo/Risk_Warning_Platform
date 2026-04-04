@@ -8,8 +8,12 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV BERT_MODEL_NAME=bert-base-chinese
-ENV PORT=8000
+ENV PORT=8001
 ENV HOST=0.0.0.0
+
+# 配置国内Debian镜像源
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list \
+    && sed -i 's/security.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
@@ -28,7 +32,7 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --tru
 COPY bert_service.py .
 
 # 暴露端口
-EXPOSE 8000
+EXPOSE 8001
 
 # 健康检查（使用Python检查，因为容器里不一定有curl）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \

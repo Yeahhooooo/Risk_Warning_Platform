@@ -49,11 +49,41 @@ services:
       - zookeeper
 
   # BERT向量化服务
-  bert-service:
+  # bert-service:
+  #   build:
+  #     context: ../risk-warning-knowledge/bert-service
+  #     dockerfile: Dockerfile
+  #   container_name: bert-service
+  #   ports:
+  #     - "8001:8001"
+  #   environment:
+  #     - PORT=8001
+  #     - HOST=0.0.0.0
+  #     - BERT_MODEL_NAME=bert-base-chinese
+  #   volumes:
+  #     # 持久化模型缓存，避免每次重启都下载
+  #     - bert-model-cache:/root/.cache/huggingface
+  #   networks:
+  #     - kafka-net
+  #   healthcheck:
+  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 120s  # 模型加载需要时间，给120秒启动期
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 4G
+  #       reservations:
+  #         memory: 2G
+
+  # 微服务
+  bert:
     build:
-      context: ../risk-warning-knowledge/bert-service
-      dockerfile: Dockerfile
-    container_name: bert-service
+      context: ..
+      dockerfile: risk-warning-bert/Dockerfile
+    container_name: bert
     ports:
       - "8000:8000"
     environment:
@@ -61,22 +91,97 @@ services:
       - HOST=0.0.0.0
       - BERT_MODEL_NAME=bert-base-chinese
     volumes:
-      # 持久化模型缓存，避免每次重启都下载
       - bert-model-cache:/root/.cache/huggingface
     networks:
       - kafka-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: [ "CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s  # 模型加载需要时间，给120秒启动期
+      start_period: 120s
     deploy:
       resources:
         limits:
           memory: 4G
         reservations:
           memory: 2G
+    depends_on:
+      - kafka
+    restart: always
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: risk-warning-gateway/Dockerfile
+    container_name: gateway
+    ports:
+      - "8088:8088"
+    networks:
+      - kafka-net
+    depends_on:
+      - kafka
+      - bert
+    restart: always
+
+  org:
+    build:
+      context: ..
+      dockerfile: risk-warning-org/Dockerfile
+    container_name: org
+    networks:
+      - kafka-net
+    depends_on:
+      - kafka
+    restart: always
+
+  processing:
+    build:
+      context: ..
+      dockerfile: risk-warning-processing/Dockerfile
+    container_name: processing
+    networks:
+      - kafka-net
+    depends_on:
+      - kafka
+      - bert
+    restart: always
+
+  notification:
+    build:
+      context: ..
+      dockerfile: risk-warning-notification/Dockerfile
+    container_name: notification
+    networks:
+      - kafka-net
+    depends_on:
+      - kafka
+    restart: always
+
+  report:
+    build:
+      context: ..
+      dockerfile: risk-warning-report/Dockerfile
+    container_name: report
+    networks:
+      - kafka-net
+    depends_on:
+      - kafka
+    restart: always
+
+  knowledge:
+    build:
+      context: ..
+      dockerfile: risk-warning-knowledge/Dockerfile
+    container_name: knowledge
+    networks:
+      - kafka-net
+    depends_on:
+      - kafka
+      - bert
+    restart: always
+
+
 
 volumes:
   bert-model-cache:

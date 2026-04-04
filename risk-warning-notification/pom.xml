@@ -91,6 +91,9 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <mainClass>com.riskwarning.notification.NotificationApplication</mainClass>
+                </configuration>
             </plugin>
         </plugins>
     </build>
