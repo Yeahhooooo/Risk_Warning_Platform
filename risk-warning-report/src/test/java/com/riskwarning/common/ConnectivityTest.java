@@ -1,21 +1,32 @@
 package com.riskwarning.common;
 
 
+import cn.hutool.core.lang.Assert;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
+import co.elastic.clients.elasticsearch.core.SearchResponse;
+import co.elastic.clients.elasticsearch.core.search.Hit;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.riskwarning.common.config.ElasticSearchConfig;
 import com.riskwarning.common.config.TestConsumer;
 import com.riskwarning.common.enums.AssessmentStatusEnum;
 import com.riskwarning.common.enums.risk.RiskLevelEnum;
+import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.common.po.report.Assessment;
+import com.riskwarning.common.po.risk.Risk;
 import com.riskwarning.common.message.*;
 import com.riskwarning.common.utils.RedisUtil;
 import com.riskwarning.report.ReportApplication;
 import com.riskwarning.report.repository.AssessmentRepository;
+import com.riskwarning.report.service.ReportService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.kafka.core.KafkaTemplate;
 import javax.sql.DataSource;
+import java.io.IOException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 
 @SpringBootTest(classes = ReportApplication.class)
@@ -29,6 +40,9 @@ public class ConnectivityTest {
 
     @Autowired
     private RedisUtil redisUtil;
+
+    @Autowired
+    private ReportService reportService;
 
 
     @Autowired
@@ -97,5 +111,95 @@ public class ConnectivityTest {
             assert false : "Failed to query assessments from the database";
         }
     }
+
+
+//    @Test
+//    public void testRiskLevelQuery() {
+//        try {
+//            System.out.println(reportService.assembleRisk(144L,"企业信用风险","MEDIUM_RISK").toString());
+//        }catch (Exception e){
+//            e.printStackTrace();
+//        }
+//    }
+
+
+    //测试es连通性
+    @Test
+    public void testesConnect() throws IOException {
+        SearchResponse<Behavior> resp = client.search(s -> s
+                        .index(ElasticSearchConfig.BEHAVIOR_INDEX)
+                        .size(10)
+                        .query(q -> q.bool(ma -> ma.must(m1 ->m1.term(t->t.field("project_id").value(22))))),
+                Behavior.class
+        );
+
+        List<Behavior> allBehaviors = new ArrayList<>();
+        if (resp != null && resp.hits() != null && resp.hits().hits() != null) {
+            for (Hit<Behavior> hit : resp.hits().hits()) {
+                Behavior behavior = hit.source();
+                if (behavior != null) {
+                    allBehaviors.add(behavior);
+                }
+            }
+        }
+        Assert.isTrue(allBehaviors.size() == 10, "Only one behavior allowed");
+    }
+
+    /**
+     * 诊断测试1：用 ObjectNode 查看 ES 中 t_risk 的原始 JSON，确认 risk_level 的实际存储值
+     */
+    @Test
+    public void testDiagnoseRiskLevelRawValue() throws IOException {
+        SearchResponse<ObjectNode> resp = client.search(s -> s
+                        .index(ElasticSearchConfig.RISK_INDEX)
+                        .size(5),
+                ObjectNode.class
+        );
+        if (resp.hits() != null && resp.hits().hits() != null) {
+            for (Hit<ObjectNode> hit : resp.hits().hits()) {
+                ObjectNode node = hit.source();
+                if (node != null) {
+                    System.out.println("=== Raw risk document ===");
+                    System.out.println("risk_level raw value: [" + node.get("risk_level") + "]");
+                    System.out.println("status raw value: [" + node.get("status") + "]");
+                    System.out.println("Full JSON: " + node.toString());
+                }
+            }
+        } else {
+            System.out.println("No risk documents found in t_risk index");
+        }
+    }
+
+    /**
+     * 诊断测试2：用 Risk.class 反序列化，验证 riskLevel 枚举是否能正确映射
+     */
+    @Test
+    public void testDiagnoseRiskDeserialization() throws IOException {
+        SearchResponse<Risk> resp = client.search(s -> s
+                        .index(ElasticSearchConfig.RISK_INDEX)
+                        .size(5),
+                Risk.class
+        );
+        if (resp.hits() != null && resp.hits().hits() != null) {
+            for (Hit<Risk> hit : resp.hits().hits()) {
+                Risk risk = hit.source();
+                if (risk != null) {
+                    System.out.println("=== Deserialized Risk ===");
+                    System.out.println("riskLevel: " + risk.getRiskLevel());
+                    System.out.println("status: " + risk.getStatus());
+                    System.out.println("name: " + risk.getName());
+                    System.out.println("dimension: " + risk.getDimension());
+                    System.out.println("projectId: " + risk.getProjectId());
+                    System.out.println("assessmentId: " + risk.getAssessmentId());
+                    if (risk.getRiskLevel() == null) {
+                        System.err.println("!!! riskLevel is NULL - deserialization failed !!!");
+                    }
+                }
+            }
+        } else {
+            System.out.println("No risk documents found in t_risk index");
+        }
+    }
+
 
 }
