@@ -5,16 +5,19 @@ import co.elastic.clients.elasticsearch.core.BulkResponse;
 import com.alibaba.fastjson2.JSON;
 import com.riskwarning.common.config.ElasticSearchConfig;
 import com.riskwarning.common.enums.AssessmentStatusEnum;
+import com.riskwarning.common.enums.project.ProjectStatus;
 import com.riskwarning.common.enums.indicator.IndicatorRiskStatus;
 import com.riskwarning.common.enums.risk.RiskLevelEnum;
 import com.riskwarning.common.enums.risk.RiskStatusEnum;
 import com.riskwarning.common.message.NotificationMessage;
 import com.riskwarning.common.po.indicator.IndicatorResult;
 import com.riskwarning.common.po.report.Assessment;
+import com.riskwarning.common.po.project.Project;
 import com.riskwarning.common.po.risk.Risk;
 import com.riskwarning.common.utils.KafkaUtils;
 import com.riskwarning.report.entity.vo.AssessmentGeneralDetails;
 import com.riskwarning.report.repository.AssessmentRepository;
+import com.riskwarning.report.repository.ProjectRepository;
 import com.riskwarning.report.repository.IndicatorResultRepository;
 import com.riskwarning.report.service.AssessmentService;
 import com.riskwarning.report.service.ReportService;
@@ -39,6 +42,9 @@ public class AssessmentServiceImpl implements AssessmentService {
 
     @Autowired
     private AssessmentRepository assessmentRepository;
+
+    @Autowired
+    private ProjectRepository projectRepository;
 
     @Autowired
     private IndicatorResultRepository indicatorResultRepository;
@@ -132,7 +138,17 @@ public class AssessmentServiceImpl implements AssessmentService {
                 reportService.assembleIndicatorResult(assessment)
         )));
         assessment.setAssessmentDate(LocalDateTime.now());
-        assessmentRepository.save(assessment);
+        // 汇总报告完成后立即刷新到数据库；这也是完成状态的最后一道确认。
+        assessmentRepository.saveAndFlush(assessment);
+        log.info("评估完成状态已持久化，assessmentId={}, status={}", assessmentId, assessment.getStatus());
+
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new RuntimeException("Project not found: " + projectId));
+        project.setStatus(ProjectStatus.COMPLETED);
+        project.setActualCompletionDate(java.time.LocalDate.now());
+        project.setUpdatedAt(LocalDateTime.now());
+        projectRepository.saveAndFlush(project);
+        log.info("项目完成状态已持久化，projectId={}, status={}", projectId, project.getStatus());
 
         // 发送通知消息，通知前端评估完成
         sendAssessmentCompletedNotification(userId, projectId, assessmentId, assessment);

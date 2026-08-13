@@ -13,6 +13,7 @@ import com.riskwarning.processing.batch.BatchJob;
 import com.riskwarning.processing.service.BehaviorProcessingService;
 import com.riskwarning.processing.service.DocumentProcessingService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.batch.core.JobExecution;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -41,8 +42,8 @@ public class MessageTask {
     private ThreadPoolTaskExecutor fileThreadPoolExecutor;
 
     @Autowired
-    @Qualifier(value = "BehaviorProcessTaskThreadPool")
-    private ThreadPoolTaskExecutor behaviorThreadPoolExecutor;
+    @Qualifier(value = "AssessmentCoordinatorTaskThreadPool")
+    private ThreadPoolTaskExecutor assessmentCoordinatorExecutor;
 
     @Autowired
     private KafkaUtils kafkaUtils;
@@ -79,10 +80,15 @@ public class MessageTask {
 
                             // 步骤2: 批处理 - 将行为存入ES
                             log.info("▶ 步骤 2/3: 开始批处理任务，将行为数据存入ES...");
-                            batchJob.runBatchJob(
+                            JobExecution jobExecution = batchJob.runBatchJob(
                                     message.getProjectId(),
                                     internalFiles
                             );
+                            if (!batchJob.isJobExecutionSuccessful(jobExecution)) {
+                                throw new IllegalStateException("Batch job did not complete successfully:\n"
+                                        + batchJob.getJobExecutionSummary(jobExecution));
+                            }
+
                             log.info("✓ 步骤 2/3 完成: 批处理任务成功，行为数据已存入ES");
 
                             // 步骤3: 发送消息到指标计算任务队列
@@ -171,7 +177,9 @@ public class MessageTask {
         log.info("│  Assessment ID: {}", String.format("%-42s", message.getAssessmentId()) + "│");
         log.info("└─────────────────────────────────────────────────────────────┘");
 
-        behaviorThreadPoolExecutor.execute(() -> {
+        // Kafka 消费线程只负责接收和派发，避免长时间计算阻塞 consumer poll。
+        // 协调线程池与内部处理单条行为的线程池相互独立，避免嵌套线程池死锁。
+        assessmentCoordinatorExecutor.execute(() -> {
             try {
                 log.info("▶ 开始行为评估和指标计算...");
                 behaviorProcessingService.processProjectBehaviors(
@@ -179,11 +187,15 @@ public class MessageTask {
                         message.getProjectId(),
                         message.getAssessmentId()
                 );
+                behaviorProcessingService.markAssessmentCompleted(message.getAssessmentId());
+                behaviorProcessingService.markProjectCompleted(message.getProjectId());
+                log.info("[Assessment Status Confirmed] assessmentId={}, status=ASSESSED",
+                        message.getAssessmentId());
+                log.info("[Project Status Confirmed] projectId={}, status=COMPLETED",
+                        message.getProjectId());
             } catch (Exception e) {
                 log.error("✗ 指标计算任务失败: projectId={}, assessmentId={}, error={}",
                         message.getProjectId(), message.getAssessmentId(), e.getMessage(), e);
-
-                throw new RuntimeException("指标计算任务失败", e);
             }
         });
     }

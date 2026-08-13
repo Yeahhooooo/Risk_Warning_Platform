@@ -1,33 +1,32 @@
 package com.riskwarning.processing.service;
 
 import com.riskwarning.common.config.ElasticSearchConfig;
-import com.riskwarning.common.constants.RedisKey;
 import com.riskwarning.common.enums.AssessmentStatusEnum;
 import com.riskwarning.common.enums.indicator.IndicatorRiskStatus;
+import com.riskwarning.common.enums.project.ProjectStatus;
 import com.riskwarning.common.exception.BusinessException;
 import com.riskwarning.common.message.AssessmentCompletedEventMessage;
 import com.riskwarning.common.po.behavior.Behavior;
 import com.riskwarning.common.po.indicator.Indicator;
 import com.riskwarning.common.po.indicator.IndicatorResult;
 import com.riskwarning.common.po.indicator.IndicatorResultDetail;
+import com.riskwarning.common.po.project.Project;
 import com.riskwarning.common.po.regulation.Regulation;
 import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.po.risk.RelatedBehavior;
 import com.riskwarning.common.po.risk.RelatedIndicator;
 import com.riskwarning.common.po.risk.RelatedRegulation;
 import com.riskwarning.common.utils.KafkaUtils;
-import com.riskwarning.common.utils.RedisUtil;
 import com.riskwarning.common.utils.StringUtils;
 import com.riskwarning.processing.entity.dto.DocumentProcessingResult;
 import com.riskwarning.processing.repository.AssessmentRepository;
 import com.riskwarning.processing.repository.IndicatorResultRepository;
+import com.riskwarning.processing.repository.ProjectRepository;
 import com.riskwarning.processing.util.behavior.FallbackCalculator;
 import com.riskwarning.processing.util.behavior.QualitativeCalculator;
 import com.riskwarning.processing.util.behavior.QuantitativeCalculator;
 import com.riskwarning.processing.util.behavior.RegWeightCalculator;
 import com.riskwarning.processing.util.behavior.SimilarityCalculator;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -37,7 +36,7 @@ import org.springframework.stereotype.Service;
 import co.elastic.clients.elasticsearch.ElasticsearchClient;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
-import org.springframework.transaction.support.TransactionTemplate;
+
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -54,8 +53,6 @@ public class BehaviorProcessingService {
     private static final double REG_APPLICABILITY_THRESHOLD = 0.15;
 
     private static final double REG_TO_INDICATOR_THRESHOLD = 0.2;
-
-    private static final String BEHAVIOR_VECTOR_FIELD = "description_vector";
 
     private static final String INDICATOR_VECTOR_FIELD = "name_vector";
 
@@ -75,20 +72,15 @@ public class BehaviorProcessingService {
     private AssessmentRepository assessmentRepository;
 
     @Autowired
+    private ProjectRepository projectRepository;
+
+    @Autowired
     @Qualifier(value = "BehaviorProcessTaskThreadPool")
     private ThreadPoolTaskExecutor behaviorThreadPoolExecutor;
 
     @Autowired
-    private TransactionTemplate transactionTemplate;
-
-    @Autowired
-    private RedisUtil redisUtil;
-
-    @Autowired
     private KafkaUtils kafkaUtils;
 
-    @Autowired
-    private com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     // 简化后：使用带相似度的候选项（Scored<T>），直接根据相似度与适用性判断是否影响指标
     public static class Scored<T> {
@@ -116,23 +108,7 @@ public class BehaviorProcessingService {
         }
     }
 
-    /**
-     * 内部类：用于存储单个 behavior 的计算结果
-     * ✅ 只存储 DTO/基本类型，不存储 JPA Entity
-     */
-    private static class BehaviorCalculationResult {
-        final String behaviorId;
-        final Map<String, IndicatorMetadataDTO> indicatorMetadata;
-        final DocumentProcessingResult.MappingResult result;
 
-        BehaviorCalculationResult(String behaviorId,
-                                  Map<String, IndicatorMetadataDTO> indicatorMetadata,
-                                  DocumentProcessingResult.MappingResult result) {
-            this.behaviorId = behaviorId;
-            this.indicatorMetadata = indicatorMetadata;
-            this.result = result;
-        }
-    }
 
     /**
      * DTO：指标元数据
@@ -174,7 +150,7 @@ public class BehaviorProcessingService {
         log.info("[Process Project START] projectId={}, assessmentId={} (传入)", projectId, assessmentId);
 
         // 1. 从 ES 获取该项目的所有 behaviors
-        List<Behavior> behaviors = fetchRandomBehaviors(5, projectId);
+        List<Behavior> behaviors = fetchRandomBehaviors( projectId);
         int totalBehaviorCount = behaviors.size();
 
         if (behaviors.isEmpty()) {
@@ -447,7 +423,6 @@ public class BehaviorProcessingService {
             } else {
                 log.info("[Batch Save] 无指标结果需要保存");
             }
-            
         } catch (Exception e) {
             log.error("[Batch Save Failed] error={}", e.getMessage(), e);
         }
@@ -458,119 +433,56 @@ public class BehaviorProcessingService {
         if (opt.isPresent()) {
             Assessment ar = opt.get();
             ar.setStatus(assessmentStatus);
-            assessmentRepository.save(ar);
-            log.info("[Assessment Status Updated] assessmentId={}, status={}", assessmentId, assessmentStatus);
+            assessmentRepository.saveAndFlush(ar);
+
+            AssessmentStatusEnum persistedStatus = assessmentRepository.findById(assessmentId)
+                    .map(Assessment::getStatus)
+                    .orElse(null);
+            if (persistedStatus != assessmentStatus) {
+                throw new IllegalStateException("Assessment status was not persisted: assessmentId="
+                        + assessmentId + ", expected=" + assessmentStatus + ", actual=" + persistedStatus);
+            }
+            log.info("[Assessment Status Persisted] assessmentId={}, status={}", assessmentId, persistedStatus);
         } else {
             log.warn("[Assessment Not Found] assessmentId={}", assessmentId);
             throw new RuntimeException("[Assessment Not Found] assessmentId=" + assessmentId);
         }
     }
 
-    private void saveIndicatorResult(BehaviorCalculationResult calcResult, Long projectId, Long assessmentId) {
-        String behaviorId = calcResult.behaviorId;
-        Map<String, IndicatorMetadataDTO> indicatorMetadata = calcResult.indicatorMetadata;
-        DocumentProcessingResult.MappingResult mr = calcResult.result;
-
-
-        if (mr == null || mr.getRelatedIndicators() == null || mr.getRelatedIndicators().isEmpty()) {
-            log.debug("[No Scores to Save] behaviorId={}", behaviorId);
-            return;
-        }
-
-        Map<String, RelatedIndicator> relatedIndicators = mr.getRelatedIndicators();
-
-        for (Map.Entry<String, RelatedIndicator> e : relatedIndicators.entrySet()) {
-            String indicatorEsId = e.getKey();
-            RelatedIndicator ri = e.getValue();
-            double normalizedScore = ri.getScore();
-
-            IndicatorMetadataDTO metadata = indicatorMetadata.get(indicatorEsId);
-            double maxPossible = 100.0;
-            if (metadata != null && metadata.maxScore != null && metadata.maxScore > 0) {
-                maxPossible = metadata.maxScore;
-            }
-            double absoluteScore = normalizedScore * maxPossible;
-
-
-            int retryTimes = 5;
-            while(retryTimes > 0){
-                try{
-                    // t_indicator_result有assessment_id和indicator_es_id联合唯一索引，避免幻读插入覆盖，插入失败会重试后进入乐观锁更新逻辑
-                    Optional<IndicatorResult> alIndicatorResult = indicatorResultRepository.findByAssessmentIdAndIndicatorEsId(assessmentId, indicatorEsId);
-
-                    if (alIndicatorResult.isPresent()) {
-                        IndicatorResult existing = alIndicatorResult.get();
-                        IndicatorResultDetail indicatorResultDetail = existing.getCalculationDetails();
-
-                        boolean alreadyContains = false;
-                        for(RelatedIndicator relatedIndicator : indicatorResultDetail.getRelatedIndicators()) {
-                            if(relatedIndicator.getIndicatorId().equals(behaviorId)) {
-                                alreadyContains = true;
-                                break;
-                            }
-                        }
-                        if (!alreadyContains) {
-                            LocalDateTime oldCalculatedAt = existing.getCalculatedAt();
-                            double existingScore = existing.getCalculatedScore();
-                            int existingCount = indicatorResultDetail.getRelatedIndicators().size();
-                            double averagedScore = (existingScore * existingCount + absoluteScore) / (existingCount + 1);
-                            existing.setCalculatedScore(averagedScore);
-                            existing.setCalculatedAt(LocalDateTime.now());
-                            indicatorResultDetail.getRelatedIndicators().add(ri);
-                            existing.setCalculationDetails(indicatorResultDetail);
-                            String calculationDetailsJson = objectMapper.writeValueAsString(indicatorResultDetail);
-                            String riskStatusDbValue = existing.getRiskStatus() != null
-                                    ? existing.getRiskStatus().getDbValue()
-                                    : IndicatorRiskStatus.fromCode("NOT_EVALUATED").getDbValue();
-                            int updateRes = indicatorResultRepository.updateWithOptimisticLock(
-                                    existing,
-                                    calculationDetailsJson,
-                                    riskStatusDbValue,
-                                    oldCalculatedAt
-                            );
-                            if( updateRes == 0) {
-                                log.warn("[Indicator Result Update Failed] behaviorId={}, indicatorEsId={}, retrying...",
-                                        behaviorId, indicatorEsId);
-                                throw new RuntimeException("[Indicator Result Update Failed] behaviorId=" + behaviorId);
-                            }
-                        }
-                        break;
-                    } else {
-                        IndicatorResult ir = IndicatorResult.builder()
-                                .projectId(projectId)
-                                .assessmentId(assessmentId)
-                                .indicatorEsId(indicatorEsId)
-                                .indicatorName(metadata != null ? metadata.name : indicatorEsId)
-                                .indicatorLevel(metadata != null && metadata.indicatorLevel != null ? metadata.indicatorLevel : 0)
-                                .dimension(metadata != null ? metadata.dimension : null)
-                                .type(metadata != null ? metadata.type : null)
-                                .calculatedScore(absoluteScore)
-                                .maxPossibleScore(maxPossible)
-                                .usedCalculationRuleType("auto")
-                                .calculationDetails(IndicatorResultDetail.builder()
-                                        .relatedIndicators(new ArrayList<>(Collections.singletonList(ri)))
-                                        .build())
-                                .riskTriggered(false)
-                                .riskStatus(IndicatorRiskStatus.fromCode("NOT_EVALUATED"))
-                                .calculatedAt(LocalDateTime.now())
-                                .createdAt(LocalDateTime.now())
-                                .build();
-                        indicatorResultRepository.save(ir);
-                        log.info("[Indicator Result Saved] behaviorId={}, indicatorEsId={}, score={}",
-                                behaviorId, indicatorEsId, absoluteScore);
-                        break;
-                    }
-                } catch (Exception ex) {
-                    log.error("[Save Indicator Result Failed] behaviorId={}, indicatorEsId={}, error={}",
-                            behaviorId, indicatorEsId, ex.getMessage());
-                } finally {
-                    retryTimes--;
-                }
-            }
-        }
+    /**
+     * 幂等地将评估标记为已完成，供计算流程和消息任务在不同边界重复确认。
+     */
+    public void markAssessmentCompleted(Long assessmentId) {
+        updateAssessmentStatus(assessmentId, AssessmentStatusEnum.ASSESSED);
     }
 
+    /** 幂等地将项目标记为已完成，并立即刷新、回查数据库。 */
+    public void markProjectCompleted(Long projectId) {
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new RuntimeException("[Project Not Found] projectId=" + projectId));
+        project.setStatus(ProjectStatus.COMPLETED);
+        project.setActualCompletionDate(java.time.LocalDate.now());
+        project.setUpdatedAt(LocalDateTime.now());
+        projectRepository.saveAndFlush(project);
+
+        ProjectStatus persistedStatus = projectRepository.findById(projectId)
+                .map(Project::getStatus)
+                .orElse(null);
+        if (persistedStatus != ProjectStatus.COMPLETED) {
+            throw new IllegalStateException("Project status was not persisted: projectId="
+                    + projectId + ", expected=COMPLETED, actual=" + persistedStatus);
+        }
+        log.info("[Project Status Persisted] projectId={}, status={}", projectId, persistedStatus);
+    }
+
+
     private void completeAssessmentIfNeeded(Long userId, Long projectId, Long assessmentId) {
+        // 行为评估计算已经完成，先在当前服务中持久化最终状态。
+        // 报告服务仍会消费下面的完成事件来汇总报告，但评估状态不再依赖
+        // report 服务是否在线或 Kafka 消息是否被及时消费。
+        markAssessmentCompleted(assessmentId);
+        markProjectCompleted(projectId);
+
         AssessmentCompletedEventMessage assessmentCompletedEventMessage = new AssessmentCompletedEventMessage(
                 StringUtils.generateMessageId(),
                 String.valueOf(System.currentTimeMillis()),
@@ -579,7 +491,13 @@ public class BehaviorProcessingService {
                 projectId,
                 assessmentId
         );
-        kafkaUtils.sendMessage(assessmentCompletedEventMessage);
+        try {
+            kafkaUtils.sendMessage(assessmentCompletedEventMessage);
+        } finally {
+            // 即使 Kafka 发送失败，也再次确认数据库中的最终状态。
+            markAssessmentCompleted(assessmentId);
+            markProjectCompleted(projectId);
+        }
         log.info("[Assessment Completed] projectId={}, assessmentId={}", projectId, assessmentId);
     }
 
@@ -754,8 +672,7 @@ public class BehaviorProcessingService {
 
      */
     private double computeRegulationScore(Behavior behavior, Regulation regulation) {
-        // 判断是否有定量数据
-        //TODO
+
         boolean hasQuantitativeData = Objects.equals(regulation.getType(), "定量") ||Objects.equals(behavior.getType(), "定量");
 
         if (hasQuantitativeData) {
@@ -793,7 +710,7 @@ public class BehaviorProcessingService {
      * 从 ES 中获取指定 projectId 的所有 behaviors
      * 修改：处理所有行为，不再随机选择
      */
-    private List<Behavior> fetchRandomBehaviors(int count, Long projectId) {
+    private List<Behavior> fetchRandomBehaviors( Long projectId) {
         try {
             // 修改：使用 scroll API 或更大的 size 来获取所有行为
             // 这里先设置一个较大的值，实际项目中可能需要使用 scroll API
@@ -913,16 +830,5 @@ public class BehaviorProcessingService {
         }
     }
 
-    // 新增用于构建 calculation_details 的简单 JSON
-    private ObjectNode buildCalculationDetails(double score, List<String> influencingRegs) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.put("score", score);
-        if (influencingRegs != null) {
-            node.putPOJO("influencingRegulations", influencingRegs);
-        } else {
-            node.putPOJO("influencingRegulations", Collections.emptyList());
-        }
-        // 可在此添加更多中间过程信息
-        return node;
-    }
+
 }

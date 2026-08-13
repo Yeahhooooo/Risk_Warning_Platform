@@ -44,8 +44,12 @@ public class PythonServiceManager {
     @Value("${bert.service.healthcheck.interval:5000}")
     private long healthcheckInterval;
 
+    @Value("${bert.service.healthcheck.timeout:180000}")
+    private long startupTimeout;
+
     private Process pythonProcess;
     private Thread healthcheckThread;
+    private Thread processWatcherThread;
     private volatile boolean running = false;
     
     private final RestTemplate restTemplate = new RestTemplate();
@@ -62,8 +66,9 @@ public class PythonServiceManager {
         }
 
         try {
-            // 先停止旧服务（如果存在）
-            stopOldService();
+            // 只停止当前管理器自己启动的子进程，不终止其他实例的进程。
+            stopOwnedService();
+            ensurePortAvailable();
             
             File scriptFile = findScriptFile();
             if (!scriptFile.exists()) {
@@ -84,61 +89,56 @@ public class PythonServiceManager {
             running = true;
 
             startLogReader();
+            startProcessWatcher(pythonProcess);
             waitForServiceReady();
             
             if (healthcheckEnabled) {
-                startHealthcheck();
+//                startHealthcheck();
             }
 
             log.info("Python服务启动成功，端口: {}", servicePort);
         } catch (Exception e) {
+            running = false;
+            destroyPythonProcess();
             log.error("启动Python服务失败", e);
             throw new RuntimeException("启动Python服务失败: " + e.getMessage(), e);
         }
     }
     
-    private void stopOldService() {
+    private void ensurePortAvailable() {
         try {
-            // 检查端口是否被占用
-            java.net.ServerSocket socket = new java.net.ServerSocket();
-            try {
+            try (java.net.ServerSocket socket = new java.net.ServerSocket()) {
                 socket.bind(new java.net.InetSocketAddress("localhost", servicePort), 1);
-                socket.close();
                 log.debug("端口 {} 未被占用", servicePort);
-            } catch (java.net.BindException e) {
-                log.warn("端口 {} 已被占用，尝试终止占用进程", servicePort);
-                // 端口被占用，尝试找到并终止占用进程
-                try {
-                    Process findProcess = new ProcessBuilder(
-                        "cmd", "/c", 
-                        "netstat -ano | findstr :" + servicePort + " | findstr LISTENING"
-                    ).start();
-                    
-                    java.io.BufferedReader reader = new java.io.BufferedReader(
-                        new java.io.InputStreamReader(findProcess.getInputStream())
-                    );
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        String[] parts = line.trim().split("\\s+");
-                        if (parts.length > 0) {
-                            try {
-                                String pid = parts[parts.length - 1];
-                                int processId = Integer.parseInt(pid);
-                                log.info("终止占用端口的进程: {}", processId);
-                                Runtime.getRuntime().exec("taskkill /F /PID " + processId);
-                                Thread.sleep(1000); // 等待进程终止
-                            } catch (Exception ex) {
-                                log.debug("无法终止进程: {}", ex.getMessage());
-                            }
-                        }
-                    }
-                    reader.close();
-                } catch (Exception ex) {
-                    log.warn("无法终止占用端口的进程: {}", ex.getMessage());
-                }
             }
+        } catch (java.net.BindException e) {
+            throw new IllegalStateException("Python服务端口 " + servicePort
+                + " 已被占用，请关闭重复的Java或Python进程后重试", e);
         } catch (Exception e) {
-            log.debug("检查端口占用时出错: {}", e.getMessage());
+            throw new IllegalStateException("检查Python服务端口失败: " + e.getMessage(), e);
+        }
+    }
+
+    private void stopOwnedService() {
+        running = false;
+        destroyPythonProcess();
+    }
+
+    private void destroyPythonProcess() {
+        Process process = pythonProcess;
+        if (process == null || !process.isAlive()) {
+            return;
+        }
+
+        process.destroy();
+        try {
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                process.waitFor(5, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            process.destroyForcibly();
         }
     }
 
@@ -148,23 +148,14 @@ public class PythonServiceManager {
             healthcheckThread.interrupt();
         }
 
-        if (pythonProcess != null && pythonProcess.isAlive()) {
-            running = false;
-            try {
-                pythonProcess.destroy();
-                if (!pythonProcess.waitFor(10, TimeUnit.SECONDS)) {
-                    pythonProcess.destroyForcibly();
-                    pythonProcess.waitFor(5, TimeUnit.SECONDS);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                pythonProcess.destroyForcibly();
-            }
-        }
+        stopOwnedService();
     }
 
     public boolean isServiceRunning() {
-        return running && pythonProcess != null && pythonProcess.isAlive();
+        return running
+            && pythonProcess != null
+            && pythonProcess.isAlive()
+            && checkHealth();
     }
 
     private File findScriptFile() {
@@ -240,9 +231,35 @@ public class PythonServiceManager {
         logThread.start();
     }
 
+    private void startProcessWatcher(Process process) {
+        processWatcherThread = new Thread(() -> {
+            try {
+                int exitCode = process.waitFor();
+                if (pythonProcess == process) {
+                    boolean unexpectedExit = running;
+                    running = false;
+                    if (unexpectedExit) {
+                        log.error("Python服务进程异常退出，exitCode={}", exitCode);
+                    } else {
+                        log.info("Python服务进程已停止，exitCode={}", exitCode);
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        processWatcherThread.setDaemon(true);
+        processWatcherThread.setName("python-service-process-watcher");
+        processWatcherThread.start();
+    }
+
     private void waitForServiceReady() {
-        int maxAttempts = 60;
-        for (int i = 0; i < maxAttempts && running; i++) {
+        long deadline = System.currentTimeMillis() + startupTimeout;
+        while (running && System.currentTimeMillis() < deadline) {
+            if (pythonProcess == null || !pythonProcess.isAlive()) {
+                int exitCode = pythonProcess == null ? -1 : pythonProcess.exitValue();
+                throw new RuntimeException("Python服务进程在启动期间退出，exitCode=" + exitCode);
+            }
             try {
                 if (checkHealth()) {
                     log.info("Python服务已就绪");
@@ -254,7 +271,7 @@ public class PythonServiceManager {
                 throw new RuntimeException("等待服务就绪时被中断", e);
             }
         }
-        throw new RuntimeException("Python服务启动超时，60秒内未就绪");
+        throw new RuntimeException("Python服务启动超时，" + startupTimeout + "毫秒内未就绪");
     }
 
     private boolean checkHealth() {

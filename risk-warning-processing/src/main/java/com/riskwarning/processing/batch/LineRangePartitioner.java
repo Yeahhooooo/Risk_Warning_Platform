@@ -34,19 +34,32 @@ public class LineRangePartitioner implements Partitioner {
         AtomicInteger counter = new AtomicInteger(0);
 
         List<String> paths = filePaths == null ? new ArrayList<>() : Arrays.asList(filePaths.split(","));
+        if (paths.isEmpty() || paths.stream().allMatch(path -> path == null || path.trim().isEmpty())) {
+            throw new IllegalStateException("Batch input filePaths is empty");
+        }
 
         // 遍历文件路径列表
         for (String filePath : paths) {
+            if (filePath == null || filePath.trim().isEmpty()) {
+                throw new IllegalStateException("Batch input contains an empty file path");
+            }
             File file = new File(filePath); // 将路径转换为 File 对象
 
             if (!file.exists()) {
                 // 处理文件不存在的情况 (例如，抛出异常或跳过)
-                System.err.println("File not found: " + filePath);
-                continue;
+                throw new IllegalStateException("Batch input file does not exist: " + file.getAbsolutePath());
             }
 
             // 假设这个方法能高效计算出文件总行数
+            if (!file.isFile() || !file.canRead()) {
+                throw new IllegalStateException("Batch input file is not readable: " + file.getAbsolutePath());
+            }
             long totalLines = countLines(filePath);
+            log.info("[Batch Partition] filePath={}, totalLines={}, gridSize={}",
+                    file.getAbsolutePath(), totalLines, gridSize);
+            if (totalLines == 0) {
+                throw new IllegalStateException("Batch input file is empty: " + file.getAbsolutePath());
+            }
 
             long startLine = 1;
 
@@ -68,6 +81,7 @@ public class LineRangePartitioner implements Partitioner {
                 startLine = endLine + 1;
             }
         }
+        log.info("[Batch Partition] createdPartitions={}", result.size());
         return result;
     }
 

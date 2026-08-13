@@ -45,6 +45,7 @@
         <dependency>
             <groupId>com.alibaba.cloud</groupId>
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+
         </dependency>
 
         <!-- Bootstrap -->
@@ -83,6 +84,13 @@
             <groupId>com.riskwarning</groupId>
             <artifactId>risk-warning-common</artifactId>
             <version>1.0.0</version>
+        </dependency>
+
+        <!-- Test Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
