@@ -3,6 +3,7 @@ package com.riskwarning.org.controller;
 import com.riskwarning.common.annotation.AuthRequired;
 import com.riskwarning.common.dto.enterprise.EnterpriseUserResponse;
 import com.riskwarning.common.po.enterprise.Enterprise;
+import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.dto.AddMemberRequest;
 import com.riskwarning.common.dto.enterprise.EnterpriseCreateRequest;
 import com.riskwarning.common.result.Result;
@@ -86,6 +87,18 @@ public class EnterpriseController {
         // For demonstration, returning an empty list
         List<EnterpriseUserResponse> users = enterpriseService.getUsersByEnterprise(enterpriseId);
         return Result.success(users);
+    }
+
+
+    /**
+     * 按企业名称查询最近一次的评估结果
+     * @param name 企业名称
+     * @return 最近一次评估结果，若无评估记录则 data 为 null
+     */
+    @GetMapping("/{name}/assessment")
+    public Result<Assessment> getLatestAssessmentByName(@PathVariable String name) {
+        Assessment assessment = enterpriseService.getLatestAssessmentByEnterpriseName(name);
+        return Result.success(assessment);
     }
 
 

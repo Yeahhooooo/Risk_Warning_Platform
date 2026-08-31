@@ -7,9 +7,13 @@ import com.riskwarning.common.enums.EnterpriseRole;
 import com.riskwarning.common.po.enterprise.Enterprise;
 import com.riskwarning.common.po.enterprise.EnterpriseUser;
 import com.riskwarning.common.po.enterprise.EnterpriseUserId;
+import com.riskwarning.common.po.project.Project;
+import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.po.user.User;
+import com.riskwarning.org.repository.AssessmentRepository;
 import com.riskwarning.org.repository.EnterpriseRepository;
 import com.riskwarning.org.repository.EnterpriseUserRepository;
+import com.riskwarning.org.repository.ProjectRepository;
 import com.riskwarning.org.service.EnterpriseService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,13 +28,19 @@ public class EnterpriseServiceImpl implements EnterpriseService {
 
     private final EnterpriseRepository enterpriseRepository;
     private final EnterpriseUserRepository enterpriseUserRepository;
+    private final ProjectRepository projectRepository;
+    private final AssessmentRepository assessmentRepository;
     private final EntityManager em;
 
     public EnterpriseServiceImpl(EnterpriseRepository enterpriseRepository,
                                  EnterpriseUserRepository enterpriseUserRepository,
+                                 ProjectRepository projectRepository,
+                                 AssessmentRepository assessmentRepository,
                                  EntityManager em) {
         this.enterpriseRepository = enterpriseRepository;
         this.enterpriseUserRepository = enterpriseUserRepository;
+        this.projectRepository = projectRepository;
+        this.assessmentRepository = assessmentRepository;
         this.em = em;
     }
 
@@ -141,6 +151,28 @@ public class EnterpriseServiceImpl implements EnterpriseService {
                     return new EnterpriseUserResponse(ur, roleCode);
                 })
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Assessment getLatestAssessmentByEnterpriseName(String name) {
+        // 1. 根据企业名称查找企业
+        Enterprise enterprise = enterpriseRepository.findByName(name)
+                .orElseThrow(() -> new IllegalArgumentException("enterprise not found: " + name));
+
+        // 2. 查找该企业下所有项目的ID
+        List<Long> projectIds = projectRepository.findByEnterpriseId(enterprise.getId()).stream()
+                .map(Project::getId)
+                .collect(Collectors.toList());
+
+        if (projectIds.isEmpty()) {
+            return null;
+        }
+
+        // 3. 在这些项目的评估记录中，取最近一次
+        return assessmentRepository
+                .findFirstByProjectIdInOrderByAssessmentDateDesc(projectIds)
+                .orElse(null);
     }
 
 }
