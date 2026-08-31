@@ -12,11 +12,15 @@ import java.util.stream.Collectors;
 @Component
 public class ContentExtractor {
 
+
     // 最小片段长度（字符数）
     private static final int MIN_SEGMENT_LENGTH = 10;
-    
+
+
     // 最大片段长度（字符数）
     private static final int MAX_SEGMENT_LENGTH = 500;
+
+
 
     /**
      * 从扫描文档中提取文本片段

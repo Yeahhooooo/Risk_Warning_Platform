@@ -19,6 +19,8 @@ import com.riskwarning.org.repository.FileRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.annotation.PostConstruct;
@@ -101,7 +103,8 @@ public class ExecuteQueueTask {
                                     .build();
 
                             assessmentRepository.save(assessment);
-                            // 发送消息队列
+                            // 先构造消息，但必须等当前数据库事务提交成功后再发送。
+                            // 否则 processing 服务可能先消费消息，却查不到尚未提交的 Assessment。
                             BehaviorProcessingTaskMessage behaviorProcessingTaskMessage = new BehaviorProcessingTaskMessage(
                                     StringUtils.generateMessageId(),
                                     String.valueOf(System.currentTimeMillis()),
@@ -112,7 +115,15 @@ public class ExecuteQueueTask {
                                     DataSourceTypeEnum.FILE_UPLOAD,
                                     projectFile.getFilePaths()
                             );
-                            kafkaUtils.sendMessage(behaviorProcessingTaskMessage);
+                            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                                @Override
+                                public void afterCommit() {
+                                    kafkaUtils.sendMessage(behaviorProcessingTaskMessage);
+                                    log.info("数据库事务已提交，评估任务消息已发送，projectId={}, assessmentId={}",
+                                            behaviorProcessingTaskMessage.getProjectId(),
+                                            behaviorProcessingTaskMessage.getAssessmentId());
+                                }
+                            });
                             return true;
                         } catch (Exception e) {
                             log.error("Error processing file upload confirm queue", e);

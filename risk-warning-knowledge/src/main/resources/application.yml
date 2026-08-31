@@ -19,7 +19,9 @@ vectorization:
   api:
     local-api-url: http://localhost:8000/encode  # 本地Python服务地址
 
-# Elasticsearch配置
-spring:
-  elasticsearch:
-    uris: http://172.29.7.168:30920
+
+
+#
+#logging:
+#  level:
+#    com.alibaba.cloud.nacos: DEBUG

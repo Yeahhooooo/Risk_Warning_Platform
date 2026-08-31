@@ -28,6 +28,9 @@ import java.util.List;
 @Slf4j
 public class MessageTask {
 
+    private static final int ASSESSMENT_MAX_ATTEMPTS = 3;
+    private static final long ASSESSMENT_RETRY_BACKOFF_MILLIS = 2000L;
+
     @Autowired
     private BatchJob batchJob;
 
@@ -179,9 +182,14 @@ public class MessageTask {
 
         // Kafka 消费线程只负责接收和派发，避免长时间计算阻塞 consumer poll。
         // 协调线程池与内部处理单条行为的线程池相互独立，避免嵌套线程池死锁。
-        assessmentCoordinatorExecutor.execute(() -> {
+        assessmentCoordinatorExecutor.execute(() -> processAssessmentWithRetry(message));
+    }
+
+    private void processAssessmentWithRetry(IndicatorCalculationTaskMessage message) {
+        for (int attempt = 1; attempt <= ASSESSMENT_MAX_ATTEMPTS; attempt++) {
             try {
-                log.info("▶ 开始行为评估和指标计算...");
+                log.info("▶ 开始行为评估和指标计算，attempt={}/{}...",
+                        attempt, ASSESSMENT_MAX_ATTEMPTS);
                 behaviorProcessingService.processProjectBehaviors(
                         message.getUserId(),
                         message.getProjectId(),
@@ -193,10 +201,32 @@ public class MessageTask {
                         message.getAssessmentId());
                 log.info("[Project Status Confirmed] projectId={}, status=COMPLETED",
                         message.getProjectId());
+                return;
             } catch (Exception e) {
-                log.error("✗ 指标计算任务失败: projectId={}, assessmentId={}, error={}",
-                        message.getProjectId(), message.getAssessmentId(), e.getMessage(), e);
+                log.error("✗ 指标计算任务失败: projectId={}, assessmentId={}, attempt={}/{}, error={}",
+                        message.getProjectId(), message.getAssessmentId(), attempt,
+                        ASSESSMENT_MAX_ATTEMPTS, e.getMessage(), e);
+                if (attempt < ASSESSMENT_MAX_ATTEMPTS && !sleepBeforeRetry(message)) {
+                    return;
+                }
             }
-        });
+        }
+
+        behaviorProcessingService.markAssessmentFailed(message.getAssessmentId());
+        log.error("[Assessment Permanently Failed] projectId={}, assessmentId={}, attempts={}",
+                message.getProjectId(), message.getAssessmentId(), ASSESSMENT_MAX_ATTEMPTS);
+    }
+
+    private boolean sleepBeforeRetry(IndicatorCalculationTaskMessage message) {
+        try {
+            Thread.sleep(ASSESSMENT_RETRY_BACKOFF_MILLIS);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            behaviorProcessingService.markAssessmentFailed(message.getAssessmentId());
+            log.error("评估重试等待被中断: projectId={}, assessmentId={}",
+                    message.getProjectId(), message.getAssessmentId(), e);
+            return false;
+        }
     }
 }

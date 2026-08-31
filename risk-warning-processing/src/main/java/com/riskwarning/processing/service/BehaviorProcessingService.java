@@ -456,6 +456,11 @@ public class BehaviorProcessingService {
         updateAssessmentStatus(assessmentId, AssessmentStatusEnum.ASSESSED);
     }
 
+    /** 在所有重试均失败后记录终态，避免评估永久停留在“评估中”。 */
+    public void markAssessmentFailed(Long assessmentId) {
+        updateAssessmentStatus(assessmentId, AssessmentStatusEnum.FAILED);
+    }
+
     /** 幂等地将项目标记为已完成，并立即刷新、回查数据库。 */
     public void markProjectCompleted(Long projectId) {
         Project project = projectRepository.findById(projectId)

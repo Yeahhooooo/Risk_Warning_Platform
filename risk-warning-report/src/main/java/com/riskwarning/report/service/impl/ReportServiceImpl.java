@@ -152,7 +152,7 @@ public class ReportServiceImpl implements ReportService {
         for(Risk risk : risks) {
             RiskVO riskVO = new RiskVO();
             BeanUtils.copyProperties(risk, riskVO);
-            // BeanUtils.copyProperties 不会自动将枚举类型转为 String，需要手动设置
+
             if (risk.getRiskLevel() != null) {
                 riskVO.setRiskLevel(risk.getRiskLevel().name());
             }
