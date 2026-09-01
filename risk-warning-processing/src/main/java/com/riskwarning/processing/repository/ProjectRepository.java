@@ -1,4 +1,4 @@
-package com.riskwarning.org.repository;
+package com.riskwarning.processing.repository;
 
 import com.riskwarning.common.po.project.Project;
 import org.springframework.data.jpa.repository.JpaRepository;
