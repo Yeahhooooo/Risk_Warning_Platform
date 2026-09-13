@@ -1,7 +1,6 @@
 package com.riskwarning.processing.service;
 
 import com.riskwarning.common.constants.Constants;
-import com.riskwarning.common.utils.StringUtils;
 import com.riskwarning.processing.entity.dto.DocumentProcessingResult;
 import com.riskwarning.processing.util.ContentExtractor;
 import com.riskwarning.processing.util.FileGetter;
@@ -14,13 +13,16 @@ import org.springframework.stereotype.Service;
 
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.IOException;
 import java.io.FileInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 
 @Slf4j
@@ -39,28 +41,36 @@ public class DocumentProcessingService {
     
     public List<String> processDocument(Long projectId, List<String> urls, List<String> paths) {
         List<String> results = new ArrayList<>();
-        for(String url : urls){
-            results.add(process(fileGetter.getFromUrl(url), projectId));
+        try {
+            for(String url : urls){
+                results.add(process(fileGetter.getFromUrl(url), projectId));
+            }
+            for(String path : paths){
+                results.add(process(fileGetter.getFromPath(path), projectId));
+            }
+            return results;
+        } catch (RuntimeException e) {
+            // 未能返回文件清单时，由提取阶段回收本次已经生成的文件。
+            deleteCreatedFiles(results, e);
+            throw e;
         }
-        for(String path : paths){
-            results.add(process(fileGetter.getFromPath(path), projectId));
-        }
-        return results;
     }
 
     private String process(File documentFile, Long projectId){
         String targetInternalPath = Constants.getInternalDirPath(projectId);
-        File targetInternalFile = new File(targetInternalPath, StringUtils.generateFileName(projectId, "") + ".txt");
+        // 每个文档独立分配文件名；CREATE_NEW 确保任何情况下都不会覆盖已有输入。
+        File targetInternalFile = new File(targetInternalPath, projectId + "_" + UUID.randomUUID() + ".txt");
         File parentDir = targetInternalFile.getParentFile();
         if(!parentDir.exists()){
             parentDir.mkdirs();
         }
+        boolean outputCreated = false;
         try (BufferedWriter writer = Files.newBufferedWriter(
                 targetInternalFile.toPath(),
                 StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
+                StandardOpenOption.CREATE_NEW
         )){
+            outputCreated = true;
             FileGetter.FileMetadata metadata = fileGetter.getFileMetadata(documentFile);
             // 验证文件
             if (!fileGetter.validateFile(documentFile, metadata.getFileType())) {
@@ -123,9 +133,23 @@ public class DocumentProcessingService {
             }
             return targetInternalFile.getAbsolutePath();
         } catch (Exception e) {
+            if (outputCreated) {
+                deleteCreatedFiles(Collections.singletonList(targetInternalFile.getAbsolutePath()), e);
+            }
             log.error("[Document Extract] failed: source={}, internalFile={}, error={}",
                     documentFile.getAbsolutePath(), targetInternalFile.getAbsolutePath(), e.getMessage(), e);
             throw new RuntimeException("文档内容提取失败: " + documentFile.getAbsolutePath() + ", " + e.getMessage(), e);
+        }
+    }
+
+    private void deleteCreatedFiles(List<String> paths, Exception failure) {
+        for (String path : paths) {
+            try {
+                Files.deleteIfExists(Paths.get(path));
+            } catch (IOException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+                log.warn("文档提取失败后的中间文件清理失败: file={}", path, cleanupFailure);
+            }
         }
     }
 }

@@ -64,6 +64,10 @@ public enum RiskLevelEnum {
     }
 
     public static RiskLevelEnum getByRiskCount(int lowRiskCount, int mediumRiskCount, int highRiskCount) {
+        // 当前等级体系最低为低风险；零风险时不能进行 0 / 0 运算。
+        if (lowRiskCount == 0 && mediumRiskCount == 0 && highRiskCount == 0) {
+            return LOW_RISK;
+        }
         if(highRiskCount >= 5){
             return HIGH_RISK;
         }

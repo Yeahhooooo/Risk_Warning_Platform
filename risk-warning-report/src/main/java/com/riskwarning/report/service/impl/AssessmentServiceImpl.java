@@ -65,6 +65,9 @@ public class AssessmentServiceImpl implements AssessmentService {
         }
         // todo：查询IndicatorResult表，获取所有指标结果，计算结果小于maxScore * 0.5的产生风险，预留处置接口
         List<IndicatorResult> indicatorResults = indicatorResultRepository.findByAssessmentId(assessmentId);
+        if (indicatorResults.isEmpty()) {
+            throw new IllegalStateException("No indicator results for assessmentId: " + assessmentId);
+        }
         List<Risk> risks = new ArrayList<>();
         double totalScore = 0.0;
         int lowRiskCount = 0, mediumRiskCount = 0, highRiskCount = 0, totalRiskCount = 0;
@@ -108,25 +111,27 @@ public class AssessmentServiceImpl implements AssessmentService {
         // 持久化指标结果的“触发风险”状态，供指标概览/分布统计使用
         indicatorResultRepository.saveAll(indicatorResults);
 
-        try {
-            BulkResponse response = elasticsearchClient.bulk(b -> {
-                for (Risk risk : risks) {
-                    b.operations(op -> op
-                            .index(idx -> idx
-                                    .index(ElasticSearchConfig.RISK_INDEX)
-                                    .document(risk)
-                            )
-                    );
+        if (!risks.isEmpty()) {
+            try {
+                BulkResponse response = elasticsearchClient.bulk(b -> {
+                    for (Risk risk : risks) {
+                        b.operations(op -> op
+                                .index(idx -> idx
+                                        .index(ElasticSearchConfig.RISK_INDEX)
+                                        .document(risk)
+                                )
+                        );
+                    }
+                    return b;
+                });
+                if (response.errors()) {
+                    log.error("Bulk insert encountered errors: {}", response.items().toString());
+                    throw new Exception("Bulk insert to Elasticsearch failed");
                 }
-                return b;
-            });
-            if (response.errors()) {
-                log.error("Bulk insert encountered errors: {}", response.items().toString());
-                throw new Exception("Bulk insert to Elasticsearch failed");
+            } catch (Exception e) {
+                log.error("Failed to index risk documents to Elasticsearch: {}", e.getMessage());
+                throw new RuntimeException(e);
             }
-        } catch (Exception e) {
-            log.error("Failed to index risk documents to Elasticsearch: {}", e.getMessage());
-            throw new RuntimeException(e);
         }
 
         assessment.setOverallScore(totalScore);

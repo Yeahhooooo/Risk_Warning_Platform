@@ -1,12 +1,10 @@
 package com.riskwarning.processing.task;
 
 
-import com.riskwarning.common.constants.Constants;
 import com.riskwarning.common.enums.indicator.IndicatorRiskStatus;
 import com.riskwarning.common.message.BehaviorProcessingTaskMessage;
 import com.riskwarning.common.message.IndicatorCalculationTaskMessage;
 import com.riskwarning.common.po.indicator.IndicatorResult;
-import com.riskwarning.common.utils.FileUtils;
 import com.riskwarning.common.utils.KafkaUtils;
 import com.riskwarning.common.utils.StringUtils;
 import com.riskwarning.processing.batch.BatchJob;
@@ -23,6 +21,9 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.io.IOException;
 
 @Component
 @Slf4j
@@ -70,11 +71,12 @@ public class MessageTask {
 
                     fileThreadPoolExecutor.execute(() -> {
                         long startTime = System.currentTimeMillis();
+                        List<String> internalFiles = new ArrayList<>();
 
                         try {
                             // 步骤1: 文档处理 - 提取行为
                             log.info("▶ 步骤 1/3: 开始文档处理和行为提取...");
-                            List<String> internalFiles = documentProcessingService.processDocument(
+                            internalFiles = documentProcessingService.processDocument(
                                     message.getProjectId(),
                                     new ArrayList<>(),
                                     message.getFilePaths()
@@ -132,11 +134,15 @@ public class MessageTask {
                             throw new RuntimeException("处理失败", e);
                         } finally {
                             log.info("Finished processing file upload for projectId: {}", message.getProjectId());
-                            // 删除中间文件
-                            // 清理临时文件
+                            // 仅删除本任务的输入，保留同项目其他任务仍在使用的文件。
                             log.info("▶ 清理临时文件: projectId={}", message.getProjectId());
-                            String internalFilePath = Constants.getInternalDirPath(message.getProjectId());
-                            FileUtils.delDirectory(internalFilePath);
+                            for (String internalFile : internalFiles) {
+                                try {
+                                    Files.deleteIfExists(Paths.get(internalFile));
+                                } catch (IOException e) {
+                                    log.warn("中间文件清理失败: file={}", internalFile, e);
+                                }
+                            }
                             log.info("✓ 临时文件清理完成");
                         }
                     });

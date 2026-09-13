@@ -40,11 +40,11 @@ import co.elastic.clients.elasticsearch.core.search.Hit;
 
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+
 
 @Service
 @Slf4j
@@ -160,166 +160,84 @@ public class BehaviorProcessingService {
         log.info("[使用传入的 Assessment] assessmentId={}, projectId={}, behaviorCount={}",
                 assessmentId, projectId, behaviors.size());
 
-        // 2. 使用线程安全的 Map 收集计算结果
-        Map<String, List<RelatedIndicator>> indicatorResultsMap = new ConcurrentHashMap<>();
-        Map<String, IndicatorMetadataDTO> indicatorMetadataMap = new ConcurrentHashMap<>();
-        
-        // 3. 使用 CountDownLatch 等待所有行为处理完成
-        CountDownLatch latch = new CountDownLatch(totalBehaviorCount);
-        
-        // 4. 批量大小：每处理100个行为就批量更新一次
-        int batchSize = 100;
-        AtomicInteger processedCount = new AtomicInteger(0);
-
-        log.info("[Processing Start] 开始处理 {} 个行为，使用线程池大小：{}", 
-                totalBehaviorCount, behaviorThreadPoolExecutor.getCorePoolSize());
-        log.info("[ThreadPool Status] 核心线程数={}, 最大线程数={}, 队列容量={}, 当前活跃线程数={}, 队列大小={}", 
-                behaviorThreadPoolExecutor.getCorePoolSize(),
-                behaviorThreadPoolExecutor.getMaxPoolSize(),
-                behaviorThreadPoolExecutor.getThreadPoolExecutor().getQueue().remainingCapacity(),
-                behaviorThreadPoolExecutor.getActiveCount(),
-                behaviorThreadPoolExecutor.getThreadPoolExecutor().getQueue().size());
-
-        for (int i = 0; i < behaviors.size(); i++) {
-            final Behavior behavior = behaviors.get(i);
-            final int behaviorIndex = i;
-            
-            behaviorThreadPoolExecutor.execute(() -> {
-                try {
-                    log.info("[Behavior Processing] 开始处理第 {} 个行为，behaviorId={}", 
-                            behaviorIndex + 1, behavior.getId());
-                    
-                    // 并发进行计算：获取候选指标和法规
-                    log.debug("[Behavior Processing] 正在获取候选指标和法规，behaviorId={}", behavior.getId());
+        // 工作线程只计算；结果汇总和数据库写入均由当前线程完成。
+        Map<String, List<RelatedIndicator>> indicatorResultsMap = new HashMap<>();
+        Map<String, IndicatorMetadataDTO> indicatorMetadataMap = new HashMap<>();
+        List<Future<BehaviorCalculationResult>> futures = new ArrayList<>();
+        long deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(30);
+        try {
+            for (Behavior behavior : behaviors) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new InterruptedException("Behavior processing interrupted");
+                }
+                futures.add(behaviorThreadPoolExecutor.submit(() -> {
                     List<Scored<Indicator>> indicators = fetchTopIndicators(behavior, 6);
                     List<Scored<Regulation>> regulations = fetchTopRegulations(behavior, 10);
-                    log.debug("[Behavior Processing] 获取到 {} 个指标和 {} 个法规，behaviorId={}", 
-                            indicators.size(), regulations.size(), behavior.getId());
+                    return new BehaviorCalculationResult(indicators,
+                            computeMappingFromCandidates(behavior, indicators, regulations));
+                }));
+            }
 
-                    // 只计算，不保存
-                    log.debug("[Behavior Processing] 正在计算映射结果，behaviorId={}", behavior.getId());
-                    DocumentProcessingResult.MappingResult result = computeMappingFromCandidates(behavior, indicators, regulations);
-                    log.debug("[Behavior Processing] 计算完成，result={}, behaviorId={}", 
-                            result != null ? "有结果" : "无结果", behavior.getId());
-
-                    if (result != null && result.getRelatedIndicators() != null) {
-                        // 提取元数据
-                        for (Scored<Indicator> s : indicators) {
-                            if (s.getItem() != null && s.getItem().getId() != null) {
-                                Indicator ind = s.getItem();
-                                indicatorMetadataMap.putIfAbsent(ind.getId(), new IndicatorMetadataDTO(
-                                    ind.getId(),
-                                    ind.getName(),
-                                    ind.getIndicatorLevel(),
-                                    ind.getDimension(),
-                                    ind.getType(),
-                                    ind.getMaxScore()
-                                ));
-                            }
-                        }
-                        
-                        // 收集计算结果到 Map 中
-                        int relatedCount = result.getRelatedIndicators().size();
-                        for (Map.Entry<String, RelatedIndicator> entry : result.getRelatedIndicators().entrySet()) {
-                            String indicatorId = entry.getKey();
-                            RelatedIndicator ri = entry.getValue();
-                            
-                            indicatorResultsMap.computeIfAbsent(indicatorId, k -> new CopyOnWriteArrayList<>())
-                                              .add(ri);
-                        }
-                        log.info("[Behavior Processing] 收集到 {} 个相关指标，behaviorId={}", 
-                                relatedCount, behavior.getId());
-                    } else {
-                        log.info("[Behavior Processing] 无相关指标，behaviorId={}", behavior.getId());
-                    }
-                    
-                    // 检查是否需要批量处理
-                    int currentCount = processedCount.incrementAndGet();
-                    if (currentCount % 10 == 0) {
-                        log.info("[Progress] 已处理 {}/{} 个行为，完成率：{:.2f}%，活跃线程数：{}", 
-                                currentCount, totalBehaviorCount, 
-                                (currentCount * 100.0) / totalBehaviorCount,
-                                behaviorThreadPoolExecutor.getActiveCount());
-                    }
-                    
-                    if (currentCount % batchSize == 0) {
-                        log.info("[Batch Processing] 已处理 {}/{} 个行为，开始批量更新指标结果", 
-                                currentCount, totalBehaviorCount);
-                        batchSaveIndicatorResults(indicatorResultsMap, indicatorMetadataMap, projectId, assessmentId);
-                        // 清空已处理的结果，避免重复处理
-                        indicatorResultsMap.clear();
-                        log.info("[Batch Processing] 批量更新完成，已清空结果Map", 
-                                currentCount, totalBehaviorCount);
-                    }
-                    
-                    log.info("[Behavior Processing] 完成处理第 {} 个行为，behaviorId={}", 
-                            behaviorIndex + 1, behavior.getId());
-                    
-                } catch (Exception e) {
-                    log.error("[Behavior Processing Failed] behaviorId={}, error={}", behavior.getId(), e.getMessage(), e);
-                } finally {
-                    long remaining = latch.getCount();
-                    latch.countDown();
-                    log.debug("[CountDown] 剩余 {} 个行为待处理", latch.getCount());
+            for (Future<BehaviorCalculationResult> future : futures) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new InterruptedException("Behavior processing interrupted");
                 }
-            });
-        }
-
-        // 5. 等待所有行为处理完成
-        try {
-            log.info("[Waiting] 等待所有行为处理完成，总行为数：{}", totalBehaviorCount);
-            
-            // 定期输出等待状态
-            long startTime = System.currentTimeMillis();
-            while (latch.getCount() > 0) {
-                boolean completed = latch.await(30, TimeUnit.SECONDS); // 每30秒检查一次
-                
-                long elapsed = (System.currentTimeMillis() - startTime) / 1000;
-                long remaining = latch.getCount();
-                int processed = totalBehaviorCount - (int)remaining;
-                
-                log.info("[Waiting Status] 已处理 {}/{} 个行为，剩余 {} 个，已等待 {} 秒，活跃线程数：{}", 
-                        processed, totalBehaviorCount, remaining, elapsed, 
-                        behaviorThreadPoolExecutor.getActiveCount());
-                
-                if (completed) {
-                    break;
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    throw new TimeoutException("Behavior processing exceeded 30 minutes");
                 }
-                
-                // 如果等待超过30分钟，强制退出
-                if (elapsed > 1800) {
-                    log.error("[Waiting Timeout] 等待超时（30分钟），强制退出");
-                    break;
+                BehaviorCalculationResult calculation = future.get(remaining, TimeUnit.NANOSECONDS);
+                DocumentProcessingResult.MappingResult result = calculation.mapping;
+                if (result == null || result.getRelatedIndicators() == null) {
+                    continue;
+                }
+                for (Scored<Indicator> scored : calculation.indicators) {
+                    Indicator indicator = scored.getItem();
+                    if (indicator != null && indicator.getId() != null) {
+                        indicatorMetadataMap.putIfAbsent(indicator.getId(), new IndicatorMetadataDTO(
+                                indicator.getId(), indicator.getName(), indicator.getIndicatorLevel(),
+                                indicator.getDimension(), indicator.getType(), indicator.getMaxScore()));
+                    }
+                }
+                for (Map.Entry<String, RelatedIndicator> entry : result.getRelatedIndicators().entrySet()) {
+                    indicatorResultsMap.computeIfAbsent(entry.getKey(), key -> new ArrayList<>())
+                            .add(entry.getValue());
                 }
             }
-            
-            if (latch.getCount() == 0) {
-                log.info("[All Behaviors Processed] 共处理 {} 个行为，全部完成", totalBehaviorCount);
-            } else {
-                log.warn("[Processing Timeout] 处理超时，可能有行为未完成处理，剩余 {} 个", latch.getCount());
+
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Behavior processing interrupted");
             }
-            
-            // 6. 处理剩余的结果（不足 batchSize 的部分）
-            if (!indicatorResultsMap.isEmpty()) {
-                int remainingCount = indicatorResultsMap.size();
-                log.info("[Final Batch Processing] 处理剩余 {} 个指标结果", remainingCount);
-                batchSaveIndicatorResults(indicatorResultsMap, indicatorMetadataMap, projectId, assessmentId);
-                log.info("[Final Batch Processing] 剩余结果处理完成");
-            } else {
-                log.info("[Final Batch Processing] 无剩余结果需要处理");
-            }
-            
-            // 7. 完成评估
-            log.info("[Assessment Completing] 开始完成评估流程");
+            // 所有行为成功后才保存，避免失败任务留下部分计算结果。
+            batchSaveIndicatorResults(indicatorResultsMap, indicatorMetadataMap, projectId, assessmentId);
             completeAssessmentIfNeeded(userId, projectId, assessmentId);
-            log.info("[Assessment Completed] 评估流程已完成");
-            
+            log.info("[Assessment Completed] assessmentId={}, behaviorCount={}", assessmentId, totalBehaviorCount);
         } catch (InterruptedException e) {
-            log.error("[Process Interrupted] projectId={}, error={}", projectId, e.getMessage());
             Thread.currentThread().interrupt();
+            throw new IllegalStateException("Behavior processing interrupted: assessmentId=" + assessmentId, e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Behavior calculation failed: assessmentId=" + assessmentId, e.getCause());
+        } catch (TimeoutException e) {
+            throw new IllegalStateException("Behavior processing timed out: assessmentId=" + assessmentId, e);
+        } finally {
+            for (Future<BehaviorCalculationResult> future : futures) {
+                if (!future.isDone()) {
+                    future.cancel(true);
+                }
+            }
         }
     }
-    
+
+    private static class BehaviorCalculationResult {
+        final List<Scored<Indicator>> indicators;
+        final DocumentProcessingResult.MappingResult mapping;
+
+        BehaviorCalculationResult(List<Scored<Indicator>> indicators,
+                                  DocumentProcessingResult.MappingResult mapping) {
+            this.indicators = indicators;
+            this.mapping = mapping;
+        }
+    }
     /**
      * 批量保存指标结果
      */
@@ -381,7 +299,10 @@ public class BehaviorProcessingService {
                     // 合并相关指标
                     int existingCount = detail.getRelatedIndicators().size();
                     double existingScore = existing.getCalculatedScore();
-                    double newAvgScore = (existingScore * existingCount + absoluteScore) / (existingCount + relatedIndicators.size());
+                    int newCount = relatedIndicators.size();
+                    // absoluteScore 是新批次均分，合并前须乘以条数还原为总分。
+                    double newAvgScore = (existingScore * existingCount + absoluteScore * newCount)
+                            / (existingCount + newCount);
                     
                     existing.setCalculatedScore(newAvgScore);
                     existing.setCalculatedAt(LocalDateTime.now());
@@ -425,6 +346,7 @@ public class BehaviorProcessingService {
             }
         } catch (Exception e) {
             log.error("[Batch Save Failed] error={}", e.getMessage(), e);
+            throw new IllegalStateException("Failed to save indicator results: assessmentId=" + assessmentId, e);
         }
     }
 
@@ -517,11 +439,24 @@ public class BehaviorProcessingService {
         Map<String, List<RegulationScore>> indicatorRegScores = new HashMap<>();
         Map<String, RelatedIndicator> indicatorResults = new HashMap<>();
 
-        // 初始化候选指标
+        // 先为每个有效候选创建结果及行为证据，未匹配法规时也能返回兜底分数。
         for (Scored<Indicator> s : indicators) {
             Indicator ind = s.getItem();
             if (ind != null && ind.getId() != null) {
                 indicatorRegScores.put(ind.getId(), new ArrayList<>());
+                indicatorResults.put(ind.getId(), RelatedIndicator.builder()
+                        .indicatorId(ind.getId())
+                        .indicatorName(ind.getName())
+                        .score(0.0)
+                        .maxScore(ind.getMaxScore())
+                        .relatedBehaviors(new ArrayList<>(Collections.singletonList(
+                                RelatedBehavior.builder()
+                                        .projectId(behavior.getProjectId())
+                                        .description(behavior.getDescription())
+                                        .relatedRegulations(new ArrayList<>())
+                                        .build()
+                        )))
+                        .build());
             }
         }
 
@@ -591,44 +526,17 @@ public class BehaviorProcessingService {
                 indicatorRegScores.get(ind.getId()).add(
                     new RegulationScore(reg.getId(), qualitativeScore, hierarchyWeight, timelinessWeight, behaviorRegSim)
                 );
-                RelatedIndicator indicatorResult = indicatorResults.getOrDefault(ind.getId(),
-                        RelatedIndicator.builder()
-                                .indicatorId(ind.getId())
-                                .indicatorName(ind.getName())
-                                .score(0.0)
-                                .maxScore(ind.getMaxScore())
-                                .relatedBehaviors(new ArrayList<>())
-                                .build());
-
-                // 因为这里一直是同一个behavior，只需要添加regulation即可
-                if(indicatorResult.getRelatedBehaviors().isEmpty()){
-                    indicatorResult.getRelatedBehaviors().add(
-                            RelatedBehavior.builder()
-                                    .projectId(behavior.getProjectId())
-                                    .description(behavior.getDescription())
-                                    .relatedRegulations(new ArrayList<>(Collections.singletonList(
-                                            RelatedRegulation.builder()
-                                                    .regulationId(reg.getId())
-                                                    .regulationName(reg.getName())
-                                                    // todo: 填充相关法律更多字段
-                                                    .violationType("")
-                                                    .complianceRequirement("")
-                                                    .build()
-                                    )))
-                                    .build()
-                    );
-                } else {
-                    indicatorResult.getRelatedBehaviors().get(0).getRelatedRegulations().add(
-                            RelatedRegulation.builder()
-                                    .regulationId(reg.getId())
-                                    .regulationName(reg.getName())
-                                    // todo: 填充相关法律更多字段
-                                    .violationType("")
-                                    .complianceRequirement("")
-                                    .build()
-                    );
-                }
-                indicatorResults.put(ind.getId(), indicatorResult);
+                RelatedIndicator indicatorResult = indicatorResults.get(ind.getId());
+                // 同一候选的行为证据已初始化，只追加实际匹配的法规。
+                indicatorResult.getRelatedBehaviors().get(0).getRelatedRegulations().add(
+                        RelatedRegulation.builder()
+                                .regulationId(reg.getId())
+                                .regulationName(reg.getName())
+                                // todo: 填充相关法律更多字段
+                                .violationType("")
+                                .complianceRequirement("")
+                                .build()
+                );
             }
         }
 

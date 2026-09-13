@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -19,6 +20,8 @@ public class ContentExtractor {
 
     // 最大片段长度（字符数）
     private static final int MAX_SEGMENT_LENGTH = 500;
+
+    private static final Pattern CHINESE_CHARACTER = Pattern.compile("[\\u4e00-\\u9fa5]");
 
 
 
@@ -61,8 +64,9 @@ public class ContentExtractor {
     private List<TextSegment> splitIntoSegments(String text, int pageNumber) {
         List<TextSegment> segments = new ArrayList<>();
         
-        // 先按段落分割（双换行）
-        String[] paragraphs = text.split("\n\n+");
+        // 扫描器以单换行连接 Word 段落；每个片段对应批处理输入的一行。
+        // 同时兼容 LF、CRLF、CR 和连续空行。
+        String[] paragraphs = text.split("\\R+");
         
         for (String paragraph : paragraphs) {
             paragraph = paragraph.trim();
@@ -133,8 +137,8 @@ public class ContentExtractor {
             return false;
         }
         
-        // 必须包含至少一个中文字符
-        if (!text.matches(".*[\\u4e00-\\u9fa5].*")) {
+        // 查找中文字符，避免整串匹配时因换行符误过滤正文。
+        if (!CHINESE_CHARACTER.matcher(text).find()) {
             return false;
         }
         

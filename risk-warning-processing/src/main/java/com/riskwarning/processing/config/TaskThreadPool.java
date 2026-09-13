@@ -19,6 +19,17 @@ public class TaskThreadPool {
         return executor;
     }
 
+    /** 文件父任务会同步等待 Batch 分区，子任务必须使用独立线程池。 */
+    @Bean(name = "BatchPartitionTaskThreadPool")
+    public ThreadPoolTaskExecutor batchPartitionTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(20);
+        executor.setThreadNamePrefix("Batch-Partition-");
+        return executor;
+    }
+
     @Bean(name = "BehaviorProcessTaskThreadPool")
     public ThreadPoolTaskExecutor behaviorProcessTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();

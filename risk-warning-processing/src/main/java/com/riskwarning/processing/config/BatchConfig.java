@@ -48,8 +48,8 @@ public class BatchConfig extends DefaultBatchConfigurer {
     private JobListener jobListener;
 
     @Autowired
-    @Qualifier(value = "FileProcessTaskThreadPool")
-    private ThreadPoolTaskExecutor fileThreadPoolTaskExecutor;
+    @Qualifier(value = "BatchPartitionTaskThreadPool")
+    private ThreadPoolTaskExecutor batchPartitionTaskExecutor;
 
     @Autowired
     private PlatformTransactionManager transactionManager; // 这里会注入 JpaTransactionManager
@@ -72,7 +72,7 @@ public class BatchConfig extends DefaultBatchConfigurer {
         return stepBuilderFactory.get("masterStep")
                 .partitioner("workerStep", lineRangePartitioner)
                 .step(workerStep())
-                .taskExecutor(fileThreadPoolTaskExecutor)
+                .taskExecutor(batchPartitionTaskExecutor)
                 .gridSize(Runtime.getRuntime().availableProcessors())
                 .build();
     }
