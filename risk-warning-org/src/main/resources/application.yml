@@ -1,5 +1,11 @@
 server:
   port: 8095
+
+# Shared remote Redis: each developer's local file-processing service needs its own queue.
+# Cooperating instances in one deployment should deliberately use the same value.
+org:
+  upload:
+    queue-key: ${UPLOAD_CONFIRM_QUEUE_KEY:file:confirmed:queue:lenovo}
 ## JWT配置
 #jwt:
 #  secret: risk-warning-platform-jwt-secret-key-2023

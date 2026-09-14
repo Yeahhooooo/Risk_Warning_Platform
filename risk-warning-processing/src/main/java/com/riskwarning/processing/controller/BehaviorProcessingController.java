@@ -56,14 +56,20 @@ public class BehaviorProcessingController {
     @PostMapping("/process-project/{projectId}/{assessmentId}")
     @AuthRequired
     public Result processProject(@PathVariable Long projectId, @PathVariable Long assessmentId) {
+        long started = System.nanoTime();
+        log.info("[AssessmentFlow] stage=DIRECT_ASSESSMENT status=START projectId={} assessmentId={}", projectId, assessmentId);
         try {
             log.info("开始处理项目的所有行为: projectId={}", projectId);
             behaviorProcessingService.processProjectBehaviors(UserContext.getUser().getId(), projectId, assessmentId);
+            log.info("[AssessmentFlow] stage=DIRECT_ASSESSMENT status=DONE projectId={} assessmentId={} elapsedMs={}",
+                    projectId, assessmentId, (System.nanoTime() - started) / 1_000_000);
             return Result.success("项目行为处理开始");
         } catch (IllegalArgumentException e) {
+            log.error("[AssessmentFlow] stage=DIRECT_ASSESSMENT status=FAILED projectId={} assessmentId={}", projectId, assessmentId, e);
             log.warn("处理项目行为时参数错误: projectId={}, error={}", projectId, e.getMessage());
             return Result.fail(400, e.getMessage());
         } catch (Exception e) {
+            log.error("[AssessmentFlow] stage=DIRECT_ASSESSMENT status=FAILED projectId={} assessmentId={}", projectId, assessmentId, e);
             log.error("处理项目行为失败: projectId={}", projectId, e);
             return Result.fail("处理项目行为失败: " + e.getMessage());
         }

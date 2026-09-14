@@ -55,6 +55,8 @@ public class MessageTask {
 
     @KafkaListener(topics = "behavior_processing_tasks", groupId = "test-consumer")
     public void onMessage(BehaviorProcessingTaskMessage message) {
+        log.info("[AssessmentFlow] stage=BEHAVIOR_TASK status=RECEIVED projectId={} assessmentId={} messageId={} traceId={}",
+                message.getProjectId(), message.getAssessmentId(), message.getMessageId(), message.getTraceId());
         log.info("========================================");
         log.info("[Kafka消息接收] topic=behavior_processing_tasks, messageId={}, projectId={}",
                 message.getMessageId(), message.getProjectId());
@@ -72,6 +74,8 @@ public class MessageTask {
                     fileThreadPoolExecutor.execute(() -> {
                         long startTime = System.currentTimeMillis();
                         List<String> internalFiles = new ArrayList<>();
+                        String stage = "DOCUMENT_EXTRACT";
+                        log.info("[AssessmentFlow] stage={} status=START projectId={} assessmentId={}", stage, message.getProjectId(), message.getAssessmentId());
 
                         try {
                             // 步骤1: 文档处理 - 提取行为
@@ -82,6 +86,10 @@ public class MessageTask {
                                     message.getFilePaths()
                             );
                             log.info("✓ 步骤 1/3 完成: 文档处理成功，生成内部文件数={}", internalFiles.size());
+                            log.info("[AssessmentFlow] stage=DOCUMENT_EXTRACT status=DONE projectId={} assessmentId={} fileCount={}",
+                                    message.getProjectId(), message.getAssessmentId(), internalFiles.size());
+                            stage = "BEHAVIOR_BATCH";
+                            log.info("[AssessmentFlow] stage={} status=START projectId={} assessmentId={}", stage, message.getProjectId(), message.getAssessmentId());
 
                             // 步骤2: 批处理 - 将行为存入ES
                             log.info("▶ 步骤 2/3: 开始批处理任务，将行为数据存入ES...");
@@ -95,6 +103,9 @@ public class MessageTask {
                             }
 
                             log.info("✓ 步骤 2/3 完成: 批处理任务成功，行为数据已存入ES");
+                            log.info("[AssessmentFlow] stage=BEHAVIOR_BATCH status=DONE projectId={} assessmentId={} jobExecutionId={}",
+                                    message.getProjectId(), message.getAssessmentId(), jobExecution.getId());
+                            stage = "INDICATOR_DISPATCH";
 
                             // 步骤3: 发送消息到指标计算任务队列
                             log.info("▶ 步骤 3/3: 发送消息到指标计算任务队列...");
@@ -129,6 +140,8 @@ public class MessageTask {
                             log.info("└─────────────────────────────────────────────────────────────┘");
 
                         } catch (Exception e) {
+                            log.error("[AssessmentFlow] stage={} status=FAILED projectId={} assessmentId={} messageId={} elapsedMs={}",
+                                    stage, message.getProjectId(), message.getAssessmentId(), message.getMessageId(), System.currentTimeMillis() - startTime, e);
                             log.error("✗ 处理文件上传任务失败: projectId={}, error={}",
                                     message.getProjectId(), e.getMessage(), e);
                             throw new RuntimeException("处理失败", e);
@@ -163,6 +176,8 @@ public class MessageTask {
                     break;
             }
         } catch (Exception e) {
+            log.error("[AssessmentFlow] stage=BEHAVIOR_DISPATCH status=FAILED projectId={} assessmentId={} messageId={}",
+                    message.getProjectId(), message.getAssessmentId(), message.getMessageId(), e);
             log.error("[Kafka消息处理异常] messageId={}, projectId={}, error={}",
                     message.getMessageId(), message.getProjectId(), e.getMessage(), e);
             throw new RuntimeException(e);
@@ -172,6 +187,8 @@ public class MessageTask {
 
     @KafkaListener(topics = "indicator_calculation_tasks", groupId = "indicator-calculation-consumer")
     public void onMessage(IndicatorCalculationTaskMessage message) {
+        log.info("[AssessmentFlow] stage=INDICATOR_TASK status=RECEIVED projectId={} assessmentId={} messageId={} traceId={}",
+                message.getProjectId(), message.getAssessmentId(), message.getMessageId(), message.getTraceId());
 
         log.info("========================================");
         log.info("[Kafka消息接收] topic=indicator_calculation_tasks, messageId={}, projectId={}, assessmentId={}",
@@ -188,11 +205,20 @@ public class MessageTask {
 
         // Kafka 消费线程只负责接收和派发，避免长时间计算阻塞 consumer poll。
         // 协调线程池与内部处理单条行为的线程池相互独立，避免嵌套线程池死锁。
-        assessmentCoordinatorExecutor.execute(() -> processAssessmentWithRetry(message));
+        try {
+            assessmentCoordinatorExecutor.execute(() -> processAssessmentWithRetry(message));
+        } catch (RuntimeException failure) {
+            log.error("[AssessmentFlow] stage=INDICATOR_DISPATCH status=FAILED projectId={} assessmentId={}",
+                    message.getProjectId(), message.getAssessmentId(), failure);
+            throw failure;
+        }
     }
 
     private void processAssessmentWithRetry(IndicatorCalculationTaskMessage message) {
         for (int attempt = 1; attempt <= ASSESSMENT_MAX_ATTEMPTS; attempt++) {
+            long started = System.nanoTime();
+            log.info("[AssessmentFlow] stage=INDICATOR_CALCULATE status=START projectId={} assessmentId={} attempt={}",
+                    message.getProjectId(), message.getAssessmentId(), attempt);
             try {
                 log.info("▶ 开始行为评估和指标计算，attempt={}/{}...",
                         attempt, ASSESSMENT_MAX_ATTEMPTS);
@@ -207,8 +233,12 @@ public class MessageTask {
                         message.getAssessmentId());
                 log.info("[Project Status Confirmed] projectId={}, status=COMPLETED",
                         message.getProjectId());
+                log.info("[AssessmentFlow] stage=INDICATOR_CALCULATE status=DONE projectId={} assessmentId={} attempt={} elapsedMs={}",
+                        message.getProjectId(), message.getAssessmentId(), attempt, (System.nanoTime() - started) / 1_000_000);
                 return;
             } catch (Exception e) {
+                log.error("[AssessmentFlow] stage=INDICATOR_CALCULATE status=FAILED projectId={} assessmentId={} attempt={} elapsedMs={}",
+                        message.getProjectId(), message.getAssessmentId(), attempt, (System.nanoTime() - started) / 1_000_000, e);
                 log.error("✗ 指标计算任务失败: projectId={}, assessmentId={}, attempt={}/{}, error={}",
                         message.getProjectId(), message.getAssessmentId(), attempt,
                         ASSESSMENT_MAX_ATTEMPTS, e.getMessage(), e);

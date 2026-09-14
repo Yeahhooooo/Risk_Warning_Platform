@@ -150,7 +150,9 @@ public class BehaviorProcessingService {
         log.info("[Process Project START] projectId={}, assessmentId={} (传入)", projectId, assessmentId);
 
         // 1. 从 ES 获取该项目的所有 behaviors
+        log.info("[AssessmentFlow] stage=ES_BEHAVIOR_READ status=START projectId={} assessmentId={}", projectId, assessmentId);
         List<Behavior> behaviors = fetchRandomBehaviors( projectId);
+        log.info("[AssessmentFlow] stage=ES_BEHAVIOR_READ status=DONE projectId={} assessmentId={} behaviorCount={}", projectId, assessmentId, behaviors.size());
         int totalBehaviorCount = behaviors.size();
 
         if (behaviors.isEmpty()) {
@@ -209,7 +211,9 @@ public class BehaviorProcessingService {
                 throw new InterruptedException("Behavior processing interrupted");
             }
             // 所有行为成功后才保存，避免失败任务留下部分计算结果。
+            log.info("[AssessmentFlow] stage=INDICATOR_SAVE status=START projectId={} assessmentId={} indicatorCount={}", projectId, assessmentId, indicatorResultsMap.size());
             batchSaveIndicatorResults(indicatorResultsMap, indicatorMetadataMap, projectId, assessmentId);
+            log.info("[AssessmentFlow] stage=INDICATOR_SAVE status=DONE projectId={} assessmentId={}", projectId, assessmentId);
             completeAssessmentIfNeeded(userId, projectId, assessmentId);
             log.info("[Assessment Completed] assessmentId={}, behaviorCount={}", assessmentId, totalBehaviorCount);
         } catch (InterruptedException e) {
@@ -245,8 +249,8 @@ public class BehaviorProcessingService {
                                            Map<String, IndicatorMetadataDTO> indicatorMetadataMap,
                                            Long projectId, Long assessmentId) {
         if (indicatorResultsMap.isEmpty()) {
-            log.info("[Batch Save] 无指标结果需要保存");
-            return;
+            throw new IllegalStateException("No indicator results produced: projectId=" + projectId
+                    + ", assessmentId=" + assessmentId + "; check candidate retrieval and behavior vectors");
         }
         
         try {
@@ -339,10 +343,10 @@ public class BehaviorProcessingService {
             // 批量保存
             if (!resultsToSave.isEmpty()) {
                 log.info("[Batch Save] 准备保存 {} 个指标结果", resultsToSave.size());
-                indicatorResultRepository.saveAll(resultsToSave);
+                indicatorResultRepository.saveAllAndFlush(resultsToSave);
                 log.info("[Batch Save Success] 保存了 {} 个指标结果", resultsToSave.size());
             } else {
-                log.info("[Batch Save] 无指标结果需要保存");
+                throw new IllegalStateException("No valid indicator results to save: assessmentId=" + assessmentId);
             }
         } catch (Exception e) {
             log.error("[Batch Save Failed] error={}", e.getMessage(), e);
@@ -404,6 +408,10 @@ public class BehaviorProcessingService {
 
 
     private void completeAssessmentIfNeeded(Long userId, Long projectId, Long assessmentId) {
+        long resultCount = indicatorResultRepository.countByAssessmentId(assessmentId);
+        if (resultCount == 0) {
+            throw new IllegalStateException("Cannot complete assessment without persisted indicator results: assessmentId=" + assessmentId);
+        }
         // 行为评估计算已经完成，先在当前服务中持久化最终状态。
         // 报告服务仍会消费下面的完成事件来汇总报告，但评估状态不再依赖
         // report 服务是否在线或 Kafka 消息是否被及时消费。
@@ -631,6 +639,8 @@ public class BehaviorProcessingService {
 
             SearchResponse<Behavior> resp = esClient.search(s -> s
                             .index(ElasticSearchConfig.BEHAVIOR_INDEX)
+                            // Explicit inclusion reconstructs vectors omitted from the default _source response.
+                            .source(src -> src.filter(f -> f.includes("*", "description_vector")))
                             .size(fetchSize)
                             .query(q -> q.bool(ma -> ma.must(m1 ->m1.term(t->t.field("project_id").value(projectId))))),
                     Behavior.class
@@ -641,6 +651,9 @@ public class BehaviorProcessingService {
                 for (Hit<Behavior> hit : resp.hits().hits()) {
                     Behavior behavior = hit.source();
                     if (behavior != null) {
+                        if (behavior.getId() == null) {
+                            behavior.setId(hit.id());
+                        }
                         allBehaviors.add(behavior);
                     }
                 }
@@ -666,8 +679,8 @@ public class BehaviorProcessingService {
             return selectedBehaviors;
 
         } catch (Exception e) {
-            log.error("[Fetch Behaviors Failed] error={}", e.getMessage());
-            return Collections.emptyList();
+            log.error("[AssessmentFlow] stage=ES_BEHAVIOR_READ status=FAILED projectId={}", projectId, e);
+            throw new IllegalStateException("Failed to read behaviors: projectId=" + projectId, e);
         }
     }
 
@@ -675,6 +688,7 @@ public class BehaviorProcessingService {
 
     // 新增：从 ES 拉取候选指标：简单的文本多字段匹配，返回 ES hit score 作为相似度
     public List<Scored<Indicator>> fetchTopIndicators(Behavior behavior, int candidateSize) {
+        requireBehaviorVector(behavior);
         try {
             String text = (behavior.getDescription() == null ? "" : behavior.getDescription())
                     + " " + (behavior.getTags() == null ? "" : String.join(" ", behavior.getTags()));
@@ -684,6 +698,7 @@ public class BehaviorProcessingService {
 
             SearchResponse<Indicator> resp = esClient.search(s -> s
                             .index(ElasticSearchConfig.INDICATOR_INDEX)
+                            .source(src -> src.filter(f -> f.includes("*", INDICATOR_VECTOR_FIELD)))
                             .size(candidateSize)
                             .knn(k -> k
                                     .field(INDICATOR_VECTOR_FIELD)
@@ -700,23 +715,29 @@ public class BehaviorProcessingService {
             if (resp != null && resp.hits() != null) {
                 for (Hit<Indicator> h : resp.hits().hits()) {
                     Indicator ind = h.source();
+                    if (ind == null) continue;
+                    if (ind.getId() == null) ind.setId(h.id());
                     double score = h.score() == null ? 0.0 : h.score();
                     out.add(new Scored<>(ind, score));
                 }
             }
+            log.info("[AssessmentFlow] stage=INDICATOR_CANDIDATES status=DONE projectId={} behaviorId={} candidateCount={} vectorDimensions={}",
+                    behavior.getProjectId(), behavior.getId(), out.size(), behavior.getDescriptionVector().size());
             return out;
         } catch (Exception ex) {
-            log.error("[Fetch Indicator Candidates Failed] error={}", ex.getMessage());
-            return Collections.emptyList();
+            log.error("[AssessmentFlow] stage=INDICATOR_CANDIDATES status=FAILED projectId={} behaviorId={}", behavior.getProjectId(), behavior.getId(), ex);
+            throw new IllegalStateException("Indicator candidate retrieval failed: behaviorId=" + behavior.getId(), ex);
         }
     }
 
     // 新增：从 ES 拉取候选法规
     public List<Scored<Regulation>> fetchTopRegulations(Behavior behavior, int candidateSize) {
+        requireBehaviorVector(behavior);
         try {
 
             SearchResponse<Regulation> resp = esClient.search(s -> s
                             .index(ElasticSearchConfig.REGULATION_INDEX)
+                            .source(src -> src.filter(f -> f.includes("*", REGULATION_VECTOR_FIELD)))
                             .size(candidateSize)
                             .knn(k -> k
                                     .field(REGULATION_VECTOR_FIELD)
@@ -732,14 +753,26 @@ public class BehaviorProcessingService {
             if (resp != null && resp.hits() != null) {
                 for (Hit<Regulation> h : resp.hits().hits()) {
                     Regulation reg = h.source();
+                    if (reg == null) continue;
+                    if (reg.getId() == null) reg.setId(h.id());
                     double score = h.score() == null ? 0.0 : h.score();
                     out.add(new Scored<>(reg, score));
                 }
             }
+            log.info("[AssessmentFlow] stage=REGULATION_CANDIDATES status=DONE projectId={} behaviorId={} candidateCount={}",
+                    behavior.getProjectId(), behavior.getId(), out.size());
             return out;
         } catch (Exception ex) {
-            log.error("[Fetch Regulation Candidates Failed] error={}", ex.getMessage());
-            return Collections.emptyList();
+            log.error("[AssessmentFlow] stage=REGULATION_CANDIDATES status=FAILED projectId={} behaviorId={}", behavior.getProjectId(), behavior.getId(), ex);
+            throw new IllegalStateException("Regulation candidate retrieval failed: behaviorId=" + behavior.getId(), ex);
+        }
+    }
+
+    private void requireBehaviorVector(Behavior behavior) {
+        if (behavior == null || behavior.getDescriptionVector() == null || behavior.getDescriptionVector().isEmpty()
+                || behavior.getDescriptionVector().stream().anyMatch(v -> v == null || !Float.isFinite(v))) {
+            throw new IllegalStateException("Missing or invalid behavior vector: behaviorId="
+                    + (behavior == null ? null : behavior.getId()) + "; check ES vector retrieval and vectorization");
         }
     }
 

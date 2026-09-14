@@ -49,7 +49,7 @@ public class WebSocketChannelManager {
         String channelId = channel.id().asLongText();
         Long userId = CHANNEL_USER_MAP.remove(channelId);
         if (userId != null) {
-            USER_CHANNEL_MAP.remove(userId);
+            USER_CHANNEL_MAP.remove(userId, channel);
             log.info("User {} disconnected, channel: {}", userId, channel.id().asShortText());
         }
         log.info("Channel removed: {}, total channels: {}", channel.id().asShortText(), ALL_CHANNELS.size());
@@ -59,14 +59,12 @@ public class WebSocketChannelManager {
      * 绑定用户ID与Channel
      */
     public void bindUser(Long userId, Channel channel) {
-        // 如果用户之前有旧连接，先断开
-        Channel oldChannel = USER_CHANNEL_MAP.get(userId);
-        if (oldChannel != null && oldChannel.isActive()) {
+        // 先替换映射；旧连接异步关闭时只能移除属于自己的映射。
+        CHANNEL_USER_MAP.put(channel.id().asLongText(), userId);
+        Channel oldChannel = USER_CHANNEL_MAP.put(userId, channel);
+        if (oldChannel != null && oldChannel != channel && oldChannel.isActive()) {
             oldChannel.close();
         }
-
-        USER_CHANNEL_MAP.put(userId, channel);
-        CHANNEL_USER_MAP.put(channel.id().asLongText(), userId);
         log.info("User {} bound to channel: {}", userId, channel.id().asShortText());
     }
 
@@ -83,8 +81,15 @@ public class WebSocketChannelManager {
     public boolean sendMessageToUser(Long userId, String message) {
         Channel channel = USER_CHANNEL_MAP.get(userId);
         if (channel != null && channel.isActive()) {
-            channel.writeAndFlush(new TextWebSocketFrame(message));
-            log.info("Message sent to user {}: {}", userId, message);
+            channel.writeAndFlush(new TextWebSocketFrame(message)).addListener(future -> {
+                if (future.isSuccess()) {
+                    log.info("[AssessmentFlow] stage=WS_WRITE status=SUCCESS userId={} channel={}",
+                            userId, channel.id().asShortText());
+                } else {
+                    log.error("[AssessmentFlow] stage=WS_WRITE status=FAILED userId={} channel={}",
+                            userId, channel.id().asShortText(), future.cause());
+                }
+            });
             return true;
         }
         log.warn("User {} is not online, message not sent", userId);

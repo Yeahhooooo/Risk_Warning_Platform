@@ -30,6 +30,13 @@ spring:
             - Path=/api/report/**
           filters:
             - StripPrefix=2
+        # WebSocket 使用独立的 Netty 端口，必须先于通用 HTTP 路由匹配。
+        - id: notification-service-ws
+          uri: ${NOTIFICATION_WEBSOCKET_URI:ws://localhost:9090}
+          predicates:
+            - Path=/api/notification/ws
+          filters:
+            - StripPrefix=2
         # 通知服务
         - id: notification-service
           uri: lb://risk-warning-notification
@@ -37,12 +44,6 @@ spring:
             - Path=/api/notification/**
           filters:
             - StripPrefix=2
-        - id: noticication-service-ws
-          uri: lb://risk-warning-notification
-          predicates:
-              - Path=/api/notification/**
-          filters:
-              - StripPrefix=2
       globalcors:
         corsConfigurations:
           '[/**]':

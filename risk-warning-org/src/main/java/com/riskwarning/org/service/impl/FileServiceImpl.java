@@ -13,6 +13,8 @@ import com.riskwarning.org.entity.dto.UploadConfirmDto;
 import com.riskwarning.org.entity.dto.UploadFileDto;
 import com.riskwarning.org.repository.FileRepository;
 import com.riskwarning.org.service.FileService;
+import com.riskwarning.org.task.UploadTaskQueue;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +24,7 @@ import java.io.File;
 import java.util.*;
 
 @Service
+@Slf4j
 public class FileServiceImpl implements FileService {
 
     @Autowired
@@ -29,6 +32,9 @@ public class FileServiceImpl implements FileService {
 
     @Autowired
     private FileRepository fileRepository;
+
+    @Autowired
+    private UploadTaskQueue uploadTaskQueue;
 
     @Override
     public String initUpload(Long projectId, String fileHash, Long fileSize, Integer totalChunks, String fileType) {
@@ -129,8 +135,7 @@ public class FileServiceImpl implements FileService {
             }
         }
         // 将确认上传任务放入队列，异步处理文件合并和入
-        redisUtil.lSet(
-                RedisKey.REDIS_KEY_CONFIRMED_FILE_QUEUE,
+        uploadTaskQueue.enqueue(
                 UploadConfirmDto.builder()
                         .projectId(projectId)
                         .userId(UserContext.getUser().getId())

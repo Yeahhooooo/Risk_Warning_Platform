@@ -24,8 +24,9 @@ public class NotificationMessageTask {
      */
     @KafkaListener(topics = "notification_tasks", groupId = "notification-consumer")
     public void onNotificationMessage(NotificationMessage message) {
-        log.info("接收到通知消息: messageId={}, userId={}, type={}",
-                message.getMessageId(), message.getUserId(), message.getNotificationType());
+        log.info("[AssessmentFlow] stage=NOTIFICATION_RECEIVED status=START messageId={} userId={} projectId={} assessmentId={} type={}",
+                message.getMessageId(), message.getUserId(), message.getProjectId(),
+                message.getAssessmentId(), message.getNotificationType());
 
         try {
             // 构建推送给前端的消息
@@ -46,7 +47,8 @@ public class NotificationMessageTask {
             if (userId != null) {
                 boolean sent = channelManager.sendMessageToUser(userId, jsonMessage);
                 if (sent) {
-                    log.info("通知消息已推送给用户: userId={}", userId);
+                    log.info("[AssessmentFlow] stage=WS_WRITE status=SUBMITTED userId={} messageId={} assessmentId={}",
+                            userId, message.getMessageId(), message.getAssessmentId());
                 } else {
                     log.warn("用户不在线，通知消息未能推送: userId={}", userId);
                     // 可以在这里实现离线消息存储逻辑
@@ -67,7 +69,8 @@ public class NotificationMessageTask {
     private void handleOfflineMessage(Long userId, NotificationMessage message) {
         // TODO: 实现离线消息存储逻辑
         // 可以存储到Redis或数据库中，等用户上线后再推送
-        log.info("存储离线消息: userId={}, messageId={}", userId, message.getMessageId());
+        log.warn("[AssessmentFlow] stage=WS_OFFLINE status=NOT_STORED userId={} messageId={} assessmentId={}，离线存储尚未实现",
+                userId, message.getMessageId(), message.getAssessmentId());
     }
 
     /**

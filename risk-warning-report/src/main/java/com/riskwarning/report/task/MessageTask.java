@@ -23,6 +23,17 @@ public class MessageTask {
     @KafkaListener(topics = "assessment_completed_events", groupId = "test-consumer")
     public void onMessage(AssessmentCompletedEventMessage message) {
         log.info("接收评估结束任务，开始汇总信息");
-        assessmentService.aggregateInformation(message.getUserId(), message.getProjectId(), message.getAssessmentId());
+        long started = System.nanoTime();
+        log.info("[AssessmentFlow] stage=REPORT_AGGREGATE status=START projectId={} assessmentId={} messageId={} traceId={}",
+                message.getProjectId(), message.getAssessmentId(), message.getMessageId(), message.getTraceId());
+        try {
+            assessmentService.aggregateInformation(message.getUserId(), message.getProjectId(), message.getAssessmentId());
+            log.info("[AssessmentFlow] stage=REPORT_AGGREGATE status=DONE projectId={} assessmentId={} elapsedMs={}",
+                    message.getProjectId(), message.getAssessmentId(), (System.nanoTime() - started) / 1_000_000);
+        } catch (RuntimeException failure) {
+            log.error("[AssessmentFlow] stage=REPORT_AGGREGATE status=FAILED projectId={} assessmentId={} elapsedMs={}",
+                    message.getProjectId(), message.getAssessmentId(), (System.nanoTime() - started) / 1_000_000, failure);
+            throw failure;
+        }
     }
 }

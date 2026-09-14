@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -22,6 +23,11 @@ import java.util.Map;
 @StepScope
 @Slf4j
 public class LineRangeItemWriter implements ItemWriter<Behavior> {
+    @Value("#{jobParameters['projectId']}")
+    private String projectId;
+
+    @Value("#{stepExecution.stepName}")
+    private String stepName;
 
     @Autowired
     private ElasticsearchClient elasticsearchClient;
@@ -39,6 +45,10 @@ public class LineRangeItemWriter implements ItemWriter<Behavior> {
 
         int retryTimes = 3;
         while (retryTimes > 0) {
+            String stage = "BERT_CLASSIFY";
+            long started = System.nanoTime();
+            log.info("[AssessmentFlow] stage={} status=START projectId={} step={} itemCount={} attempt={}",
+                    stage, projectId, stepName, list.size(), 4 - retryTimes);
             try {
                 // 准备批量分类请求
                 List<Map<String, String>> items = new ArrayList<>();
@@ -81,9 +91,14 @@ public class LineRangeItemWriter implements ItemWriter<Behavior> {
                         log.warn("分类结果数量 ({}) 与请求数量 ({}) 不匹配", 
                                 classificationResult.getResults() != null ? classificationResult.getResults().size() : 0,
                                 items.size());
+                        log.warn("[AssessmentFlow] stage=BERT_CLASSIFY status=DEGRADED projectId={} step={} reason=result_count_mismatch", projectId, stepName);
                     }
                 }
 
+                log.info("[AssessmentFlow] stage=BERT_CLASSIFY status=FINISHED projectId={} step={} elapsedMs={}", projectId, stepName, (System.nanoTime() - started) / 1_000_000);
+                stage = "KNOWLEDGE_VECTORIZE";
+                started = System.nanoTime();
+                log.info("[AssessmentFlow] stage={} status=START projectId={} step={}", stage, projectId, stepName);
                 // 调用向量化服务生成向量
                 List<String> textsToVectorize = new ArrayList<>();
                 for (Behavior behavior : list) {
@@ -119,18 +134,25 @@ public class LineRangeItemWriter implements ItemWriter<Behavior> {
                                 }
                                 log.info("成功为 {} 条行为数据生成向量", vectorIndex);
                             } else {
+                                log.warn("[AssessmentFlow] stage=KNOWLEDGE_VECTORIZE status=DEGRADED projectId={} step={} reason=result_count_mismatch", projectId, stepName);
                                 log.warn("向量化结果数量 ({}) 与请求数量 ({}) 不匹配", 
                                         vectors != null ? vectors.size() : 0, textsToVectorize.size());
                             }
                         } else {
+                            log.warn("[AssessmentFlow] stage=KNOWLEDGE_VECTORIZE status=DEGRADED projectId={} step={} reason=unsuccessful_response", projectId, stepName);
                             log.error("向量化服务调用失败: {}", vectorizeResponse);
                         }
                     } catch (Exception e) {
+                        log.error("[AssessmentFlow] stage=KNOWLEDGE_VECTORIZE status=DEGRADED projectId={} step={} reason=exception_continuing_without_vectors", projectId, stepName, e);
                         log.error("调用向量化服务失败", e);
                         // 向量化失败不影响数据写入，只是没有向量
                     }
                 }
 
+                log.info("[AssessmentFlow] stage=KNOWLEDGE_VECTORIZE status=FINISHED projectId={} step={} elapsedMs={}", projectId, stepName, (System.nanoTime() - started) / 1_000_000);
+                stage = "ES_BEHAVIOR_WRITE";
+                started = System.nanoTime();
+                log.info("[AssessmentFlow] stage={} status=START projectId={} step={} itemCount={}", stage, projectId, stepName, list.size());
                 // 写入es前检查数据
                 for (Behavior behavior : list) {
                     log.debug("准备写入 ES 的行为数据: id={}, description={}, vectorSize={}", 
@@ -188,8 +210,11 @@ public class LineRangeItemWriter implements ItemWriter<Behavior> {
                     throw e;
                 }
 
+                log.info("[AssessmentFlow] stage=ES_BEHAVIOR_WRITE status=DONE projectId={} step={} itemCount={} elapsedMs={}", projectId, stepName, list.size(), (System.nanoTime() - started) / 1_000_000);
                 break;
             } catch (Exception e) {
+                log.error("[AssessmentFlow] stage={} status=FAILED projectId={} step={} attempt={} retriesLeft={} elapsedMs={}",
+                        stage, projectId, stepName, 4 - retryTimes, retryTimes - 1, (System.nanoTime() - started) / 1_000_000, e);
                 log.error("Error writing items, retries left: {}", retryTimes - 1, e);
                 retryTimes--;
                 if (retryTimes == 0) {

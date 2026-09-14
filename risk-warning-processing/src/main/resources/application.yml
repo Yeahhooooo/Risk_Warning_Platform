@@ -10,3 +10,9 @@ bert:
 knowledge:
   service:
     url: http://localhost:8089  # Knowledge 服务地址
+
+
+spring:
+  batch:
+    job:
+      enabled: false

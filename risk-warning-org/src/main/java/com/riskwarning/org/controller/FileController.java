@@ -52,7 +52,14 @@ public class FileController {
     @PostMapping("/confirmUpload")
     @AuthRequired
     public Result confirmUpload(@RequestParam @NotNull Long projectId) {
-        fileService.confirmUpload(projectId);
+        log.info("[AssessmentFlow] stage=UPLOAD_CONFIRM status=START projectId={}", projectId);
+        try {
+            fileService.confirmUpload(projectId);
+            log.info("[AssessmentFlow] stage=UPLOAD_CONFIRM status=RETURNED projectId={} checkStage=UPLOAD_QUEUE_ENQUEUE", projectId);
+        } catch (RuntimeException failure) {
+            log.error("[AssessmentFlow] stage=UPLOAD_CONFIRM status=FAILED projectId={}", projectId, failure);
+            throw failure;
+        }
         return Result.success("文件上传完成");
     }
 
