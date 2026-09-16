@@ -12,7 +12,12 @@ import org.springframework.stereotype.Component;
 
 @Component
 @Slf4j
-public class MessageTask {
+public class MessageTask implements com.riskwarning.common.reliability.DurableWorkHandler {
+
+    @Autowired
+    private com.riskwarning.common.reliability.DurableWorkStore store;
+
+    public String kind() { return "REPORT_INBOX"; }
 
     @Autowired
     private AssessmentService assessmentService;
@@ -20,8 +25,16 @@ public class MessageTask {
     @Autowired
     private KafkaUtils kafkaUtils;
 
-    @KafkaListener(topics = "assessment_completed_events", groupId = "test-consumer")
+    @KafkaListener(topics = "assessment_completed_events", groupId = "test-consumer", containerFactory="durableKafkaListenerContainerFactory")
     public void onMessage(AssessmentCompletedEventMessage message) {
+        if(message == null || message.getMessageId() == null || message.getAssessmentId() == null)
+            throw new IllegalArgumentException("Assessment event requires messageId and assessmentId");
+        store.enqueue(kind(), message.getMessageId(), com.alibaba.fastjson2.JSON.toJSONString(message));
+        log.info("[AssessmentFlow] stage=REPORT_TASK status=PERSISTED assessmentId={} messageId={}", message.getAssessmentId(), message.getMessageId());
+    }
+
+    public void execute(String payload) {
+        AssessmentCompletedEventMessage message = com.alibaba.fastjson2.JSON.parseObject(payload, AssessmentCompletedEventMessage.class);
         log.info("接收评估结束任务，开始汇总信息");
         long started = System.nanoTime();
         log.info("[AssessmentFlow] stage=REPORT_AGGREGATE status=START projectId={} assessmentId={} messageId={} traceId={}",

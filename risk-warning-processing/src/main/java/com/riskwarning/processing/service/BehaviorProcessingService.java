@@ -60,6 +60,9 @@ public class BehaviorProcessingService {
 
     private static final Integer CANDIDATE_FETCH_SIZE = 200;
 
+    // 日志中正文预览的最大长度，避免候选法规全文导致日志过大
+    private static final int LOG_CONTENT_PREVIEW_LENGTH = 200;
+
 
     // 新增：注入 ElasticsearchClient 与索引名配置
     @Autowired
@@ -142,6 +145,7 @@ public class BehaviorProcessingService {
      * @param projectId 项目ID
      * @param assessmentId 评估ID（由调用方创建并传入）
      */
+    @org.springframework.transaction.annotation.Transactional
     public void processProjectBehaviors(Long userId, Long projectId, Long assessmentId) {
         if (userId == null || projectId == null || assessmentId == null) {
             throw new BusinessException("User ID, Project ID, and Assessment ID must be provided for behavior processing.");
@@ -173,8 +177,8 @@ public class BehaviorProcessingService {
                     throw new InterruptedException("Behavior processing interrupted");
                 }
                 futures.add(behaviorThreadPoolExecutor.submit(() -> {
-                    List<Scored<Indicator>> indicators = fetchTopIndicators(behavior, 6);
-                    List<Scored<Regulation>> regulations = fetchTopRegulations(behavior, 10);
+                    List<Scored<Indicator>> indicators = fetchTopIndicators(behavior, 2);
+                    List<Scored<Regulation>> regulations = fetchTopRegulations(behavior, 5);
                     return new BehaviorCalculationResult(indicators,
                             computeMappingFromCandidates(behavior, indicators, regulations));
                 }));
@@ -252,32 +256,32 @@ public class BehaviorProcessingService {
             throw new IllegalStateException("No indicator results produced: projectId=" + projectId
                     + ", assessmentId=" + assessmentId + "; check candidate retrieval and behavior vectors");
         }
-        
+
         try {
             log.info("[Batch Save] 开始批量保存，共 {} 个指标", indicatorResultsMap.size());
             List<IndicatorResult> resultsToSave = new ArrayList<>();
-            
+
             int processedIndicators = 0;
             for (Map.Entry<String, List<RelatedIndicator>> entry : indicatorResultsMap.entrySet()) {
                 String indicatorId = entry.getKey();
                 List<RelatedIndicator> relatedIndicators = entry.getValue();
-                
+
                 if (relatedIndicators.isEmpty()) {
                     continue;
                 }
-                
+
                 processedIndicators++;
                 if (processedIndicators % 10 == 0) {
                     log.info("[Batch Save] 已处理 {} 个指标", processedIndicators);
                 }
-                
+
                 // 计算平均得分
                 double totalScore = 0;
                 for (RelatedIndicator ri : relatedIndicators) {
                     totalScore += ri.getScore();
                 }
                 double avgScore = totalScore / relatedIndicators.size();
-                
+
                 // 获取指标元数据
                 IndicatorMetadataDTO metadata = indicatorMetadataMap.get(indicatorId);
                 double maxPossible = 100.0;
@@ -285,11 +289,11 @@ public class BehaviorProcessingService {
                     maxPossible = metadata.maxScore;
                 }
                 double absoluteScore = avgScore * maxPossible;
-                
+
                 // 检查是否已存在
                 Optional<IndicatorResult> existingResult = indicatorResultRepository
                         .findByAssessmentIdAndIndicatorEsId(assessmentId, indicatorId);
-                
+
                 if (existingResult.isPresent()) {
                     // 更新现有记录
                     IndicatorResult existing = existingResult.get();
@@ -299,7 +303,7 @@ public class BehaviorProcessingService {
                                 .relatedIndicators(new ArrayList<>())
                                 .build();
                     }
-                    
+
                     // 合并相关指标
                     int existingCount = detail.getRelatedIndicators().size();
                     double existingScore = existing.getCalculatedScore();
@@ -307,12 +311,12 @@ public class BehaviorProcessingService {
                     // absoluteScore 是新批次均分，合并前须乘以条数还原为总分。
                     double newAvgScore = (existingScore * existingCount + absoluteScore * newCount)
                             / (existingCount + newCount);
-                    
+
                     existing.setCalculatedScore(newAvgScore);
                     existing.setCalculatedAt(LocalDateTime.now());
                     detail.getRelatedIndicators().addAll(relatedIndicators);
                     existing.setCalculationDetails(detail);
-                    
+
                     resultsToSave.add(existing);
                 } else {
                     // 创建新记录
@@ -335,11 +339,11 @@ public class BehaviorProcessingService {
                             .calculatedAt(LocalDateTime.now())
                             .createdAt(LocalDateTime.now())
                             .build();
-                    
+
                     resultsToSave.add(result);
                 }
             }
-            
+
             // 批量保存
             if (!resultsToSave.isEmpty()) {
                 log.info("[Batch Save] 准备保存 {} 个指标结果", resultsToSave.size());
@@ -447,11 +451,16 @@ public class BehaviorProcessingService {
         Map<String, List<RegulationScore>> indicatorRegScores = new HashMap<>();
         Map<String, RelatedIndicator> indicatorResults = new HashMap<>();
 
+        // 仅用于日志：记录最终真正与每个指标建立关联的法规。
+        // 不参与任何相似度、权重或评分计算。
+        Map<String, List<Regulation>> matchedRegulationsByIndicator = new LinkedHashMap<>();
+
         // 先为每个有效候选创建结果及行为证据，未匹配法规时也能返回兜底分数。
         for (Scored<Indicator> s : indicators) {
             Indicator ind = s.getItem();
             if (ind != null && ind.getId() != null) {
                 indicatorRegScores.put(ind.getId(), new ArrayList<>());
+                matchedRegulationsByIndicator.put(ind.getId(), new ArrayList<>());
                 indicatorResults.put(ind.getId(), RelatedIndicator.builder()
                         .indicatorId(ind.getId())
                         .indicatorName(ind.getName())
@@ -532,7 +541,7 @@ public class BehaviorProcessingService {
 
                 // 将法规详细信息加入到指标的列表中
                 indicatorRegScores.get(ind.getId()).add(
-                    new RegulationScore(reg.getId(), qualitativeScore, hierarchyWeight, timelinessWeight, behaviorRegSim)
+                        new RegulationScore(reg.getId(), qualitativeScore, hierarchyWeight, timelinessWeight, behaviorRegSim)
                 );
                 RelatedIndicator indicatorResult = indicatorResults.get(ind.getId());
                 // 同一候选的行为证据已初始化，只追加实际匹配的法规。
@@ -545,8 +554,17 @@ public class BehaviorProcessingService {
                                 .complianceRequirement("")
                                 .build()
                 );
+
+                // 仅记录最终关联结果，供日志汇总使用。
+                // 这里已经通过现有的行为-法规阈值和法规-指标影响力阈值。
+                matchedRegulationsByIndicator
+                        .computeIfAbsent(ind.getId(), key -> new ArrayList<>())
+                        .add(reg);
             }
         }
+
+        // 只打印最终建立的“指标 -> 法规”关联，不打印相似度、影响力、权重等中间计算值。
+        logIndicatorRegulationAssociations(behavior, indicators, matchedRegulationsByIndicator);
 
         // 计算每个指标的最终得分
         for (Scored<Indicator> sind : indicators) {
@@ -673,7 +691,7 @@ public class BehaviorProcessingService {
                 }
             }
 
-            log.info("[Fetch Behaviors] projectId={}, totalCount={}, selectedCount={}", 
+            log.info("[Fetch Behaviors] projectId={}, totalCount={}, selectedCount={}",
                     projectId, allBehaviors.size(), selectedBehaviors.size());
 
             return selectedBehaviors;
@@ -708,7 +726,7 @@ public class BehaviorProcessingService {
                                     .k(candidateSize)
                                     .numCandidates(CANDIDATE_FETCH_SIZE)
                             )
-                            // 移除source过滤器，获取完整的指标数据（包括向量）
+                    // 移除source过滤器，获取完整的指标数据（包括向量）
                     , Indicator.class);
 
             List<Scored<Indicator>> out = new ArrayList<>();
@@ -759,6 +777,9 @@ public class BehaviorProcessingService {
                     out.add(new Scored<>(reg, score));
                 }
             }
+            // 只打印候选法规的关联内容，不打印 ES score 等中间计算值。
+            logCandidateRegulations(behavior, out);
+
             log.info("[AssessmentFlow] stage=REGULATION_CANDIDATES status=DONE projectId={} behaviorId={} candidateCount={}",
                     behavior.getProjectId(), behavior.getId(), out.size());
             return out;
@@ -766,6 +787,128 @@ public class BehaviorProcessingService {
             log.error("[AssessmentFlow] stage=REGULATION_CANDIDATES status=FAILED projectId={} behaviorId={}", behavior.getProjectId(), behavior.getId(), ex);
             throw new IllegalStateException("Regulation candidate retrieval failed: behaviorId=" + behavior.getId(), ex);
         }
+    }
+
+    /**
+     * 打印某个行为召回到的候选法规。
+     *
+     * 仅展示关联内容：行为、法规 ID、法规名称、法规正文预览。
+     * 不打印 ES score、相似度、权重、影响力等中间计算信息。
+     */
+    private void logCandidateRegulations(Behavior behavior, List<Scored<Regulation>> regulations) {
+        if (regulations == null || regulations.isEmpty()) {
+            return;
+        }
+
+        StringJoiner regulationJoiner = new StringJoiner(", ", "[", "]");
+        for (Scored<Regulation> scored : regulations) {
+            if (scored == null || scored.getItem() == null) {
+                continue;
+            }
+            regulationJoiner.add(formatRegulationForLog(scored.getItem()));
+        }
+
+        log.info(
+                "[候选法规关联] behaviorId={} behaviorContent='{}' candidateCount={} regulations={}",
+                behavior == null ? null : behavior.getId(),
+                previewForLog(behavior == null ? null : behavior.getDescription()),
+                regulations.size(),
+                regulationJoiner.toString()
+        );
+    }
+
+    /**
+     * 打印最终形成的“指标 -> 法规”关联。
+     *
+     * 只有真正通过现有计算逻辑并加入 RelatedRegulation 的法规才会出现在这里。
+     * 没有关联法规的指标不会打印，减少无效日志。
+     */
+    private void logIndicatorRegulationAssociations(
+            Behavior behavior,
+            List<Scored<Indicator>> indicators,
+            Map<String, List<Regulation>> matchedRegulationsByIndicator) {
+
+        if (indicators == null || indicators.isEmpty()
+                || matchedRegulationsByIndicator == null || matchedRegulationsByIndicator.isEmpty()) {
+            return;
+        }
+
+        for (Scored<Indicator> scoredIndicator : indicators) {
+            if (scoredIndicator == null || scoredIndicator.getItem() == null) {
+                continue;
+            }
+
+            Indicator indicator = scoredIndicator.getItem();
+            if (indicator.getId() == null) {
+                continue;
+            }
+
+            List<Regulation> matchedRegulations = matchedRegulationsByIndicator.get(indicator.getId());
+            if (matchedRegulations == null || matchedRegulations.isEmpty()) {
+                continue;
+            }
+
+            StringJoiner regulationJoiner = new StringJoiner(", ", "[", "]");
+            for (Regulation regulation : matchedRegulations) {
+                if (regulation != null) {
+                    regulationJoiner.add(formatRegulationForLog(regulation));
+                }
+            }
+
+            log.info(
+                    "[指标-法规关联] behaviorId={} behaviorContent='{}' indicatorId={} indicatorName='{}' "
+                            + "indicatorContent='{}' regulationCount={} regulations={}",
+                    behavior == null ? null : behavior.getId(),
+                    previewForLog(behavior == null ? null : behavior.getDescription()),
+                    indicator.getId(),
+                    safeForLog(indicator.getName()),
+                    previewForLog(indicator.getDescription()),
+                    matchedRegulations.size(),
+                    regulationJoiner.toString()
+            );
+        }
+    }
+
+    /**
+     * 将法规整理为紧凑的一段日志文本。
+     */
+    private String formatRegulationForLog(Regulation regulation) {
+        if (regulation == null) {
+            return "{}";
+        }
+
+        return "{regulationId='" + safeForLog(regulation.getId())
+                + "', regulationName='" + safeForLog(regulation.getName())
+                + "', content='" + previewForLog(regulation.getFullText())
+                + "'}";
+    }
+
+    /**
+     * 日志正文统一为单行并截取前 200 个字符，避免 processing.log 过大。
+     */
+    private String previewForLog(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return "";
+        }
+
+        String normalized = text
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+
+        if (normalized.length() <= LOG_CONTENT_PREVIEW_LENGTH) {
+            return safeForLog(normalized);
+        }
+
+        return safeForLog(normalized.substring(0, LOG_CONTENT_PREVIEW_LENGTH)) + "...";
+    }
+
+    /**
+     * 防止内容中的单引号影响日志阅读。
+     */
+    private String safeForLog(String text) {
+        return text == null ? "" : text.replace("'", "’");
     }
 
     private void requireBehaviorVector(Behavior behavior) {

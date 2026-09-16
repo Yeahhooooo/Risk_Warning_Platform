@@ -38,6 +38,7 @@ public class BatchJob {
      * @throws JobInstanceAlreadyCompleteException 作业实例已完成异常
      * @throws JobParametersInvalidException 作业参数无效异常
      */
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     public JobExecution runBatchJob(Long projectId, List<String> filePaths)
             throws JobExecutionAlreadyRunningException, JobRestartException,
                    JobInstanceAlreadyCompleteException, JobParametersInvalidException {

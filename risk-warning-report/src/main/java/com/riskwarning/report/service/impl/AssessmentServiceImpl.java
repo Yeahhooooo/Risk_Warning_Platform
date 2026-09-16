@@ -58,6 +58,7 @@ public class AssessmentServiceImpl implements AssessmentService {
     private final static Double THRESHOLD_RATIO = 0.5;
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public void aggregateInformation(Long userId, Long projectId, Long assessmentId) {
         Assessment assessment = assessmentRepository.findById(assessmentId).orElse(null);
         if (assessment == null) {
@@ -187,6 +188,7 @@ public class AssessmentServiceImpl implements AssessmentService {
             log.info("评估完成通知已发送，assessmentId: {}, userId: {}", assessmentId, userId);
         } catch (Exception e) {
             log.error("发送评估完成通知失败: {}", e.getMessage());
+            throw new IllegalStateException("无法持久化评估完成通知", e);
         }
     }
 
