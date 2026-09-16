@@ -29,7 +29,7 @@ bert:
   
   # Python环境配置
   python:
-    path: python  # Python命令路径，可以是 python、python3、或完整路径
+    path: python3  # Python命令路径，可以是 python、python3、或完整路径
     # Python脚本路径（支持多种方式：相对路径、绝对路径、或从项目根目录）
     script: bert-service/bert_service.py  # 默认：从 risk-warning-bert 目录运行时使用
     # 如果从项目根目录运行，可以使用: risk-warning-bert/bert-service/bert_service.py
