@@ -6,8 +6,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.RedisSerializer;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
@@ -15,44 +16,119 @@ import lombok.extern.slf4j.Slf4j;
 
 import javax.annotation.Resource;
 
-/**
- *
- * @author 王赛超 基于spring和redis的redisTemplate工具类 针对所有的hash 都是以h开头的方法 针对所有的Set 都是以s开头的方法 不含通用方法 针对所有的List 都是以l开头的方法
- */
 @Component
 @Slf4j
 public class RedisUtil {
 
-
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
 
+    /**
+     * 保存领取任务时 Redis 中真实的序列化 value。
+     * ACK 时直接使用原始字节删除。
+     */
     private final ThreadLocal<Map<String, byte[]>> claimedBytes =
             ThreadLocal.withInitial(java.util.HashMap::new);
 
-    /** Recover an unacknowledged value before atomically claiming another one. */
+    /**
+     * 关键修复：
+     *
+     * 必须使用 RedisTemplate 实际配置的 keySerializer，
+     * 不能写死成 StringRedisSerializer。
+     *
+     * 因为 lSet() / opsForList() 使用的也是这个 KeySerializer。
+     */
+    @SuppressWarnings("unchecked")
+    private byte[] serializeKey(String key) {
+
+        RedisSerializer<Object> serializer =
+                (RedisSerializer<Object>) redisTemplate.getKeySerializer();
+
+        if (serializer == null) {
+            throw new IllegalStateException(
+                    "RedisTemplate keySerializer is null");
+        }
+
+        byte[] bytes = serializer.serialize(key);
+
+        if (bytes == null) {
+            throw new IllegalStateException(
+                    "Failed to serialize Redis key: " + key);
+        }
+
+        return bytes;
+    }
+
+    /**
+     * Recover an unacknowledged value before atomically claiming another one.
+     */
     public Object claimListItem(String readyKey, String pendingKey) {
-        byte[] ready = redisTemplate.getStringSerializer().serialize(readyKey);
-        byte[] pending = redisTemplate.getStringSerializer().serialize(pendingKey);
-        byte[] raw = redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<byte[]>) connection -> {
-            byte[] existing = connection.lIndex(pending, 0);
-            return existing != null ? existing : connection.rPopLPush(ready, pending);
-        });
-        if (raw == null) return null;
-        Object value = redisTemplate.getValueSerializer().deserialize(raw);
-        if (value == null) throw new IllegalStateException("Cannot deserialize claimed upload task");
+
+        byte[] ready = serializeKey(readyKey);
+        byte[] pending = serializeKey(pendingKey);
+
+        byte[] raw = redisTemplate.execute(
+                (RedisCallback<byte[]>) connection -> {
+
+                    // 先检查 pending 中有没有上次未确认的任务
+                    byte[] existing = connection.lIndex(pending, 0);
+
+                    if (existing != null) {
+                        return existing;
+                    }
+
+                    // 原子操作：
+                    // ready 尾部弹出 -> pending 头部加入
+                    return connection.rPopLPush(ready, pending);
+                }
+        );
+
+        if (raw == null) {
+            return null;
+        }
+
+        Object value =
+                redisTemplate.getValueSerializer().deserialize(raw);
+
+        if (value == null) {
+            throw new IllegalStateException(
+                    "Cannot deserialize claimed upload task");
+        }
+
+        // ACK 时需要 Redis 里的原始字节
         claimedBytes.get().put(pendingKey, raw);
+
         return value;
     }
 
-    /** Acknowledge on the claiming thread using the original serialization bytes. */
+    /**
+     * Acknowledge on the claiming thread using the original serialization bytes.
+     */
     public void acknowledgeListItem(String pendingKey, Object value) {
+
         byte[] raw = claimedBytes.get().get(pendingKey);
-        if (raw == null) throw new IllegalStateException("No claimed task for " + pendingKey);
-        redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Long>) connection ->
-                connection.lRem(redisTemplate.getStringSerializer().serialize(pendingKey), 1, raw));
+
+        if (raw == null) {
+            throw new IllegalStateException(
+                    "No claimed task for " + pendingKey);
+        }
+
+        byte[] pending = serializeKey(pendingKey);
+
+        redisTemplate.execute(
+                (RedisCallback<Long>) connection ->
+                        connection.lRem(
+                                pending,
+                                1,
+                                raw
+                        )
+        );
+
         claimedBytes.get().remove(pendingKey);
-        if (claimedBytes.get().isEmpty()) claimedBytes.remove();
+
+        if (claimedBytes.get().isEmpty()) {
+            claimedBytes.remove();
+        }
     }
 
     // =============================common============================
