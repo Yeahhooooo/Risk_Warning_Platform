@@ -177,7 +177,7 @@ public class BehaviorProcessingService {
                     throw new InterruptedException("Behavior processing interrupted");
                 }
                 futures.add(behaviorThreadPoolExecutor.submit(() -> {
-                    List<Scored<Indicator>> indicators = fetchTopIndicators(behavior, 3);
+                    List<Scored<Indicator>> indicators = fetchTopIndicators(behavior, 2);
                     List<Scored<Regulation>> regulations = fetchTopRegulations(behavior, 5);
                     return new BehaviorCalculationResult(indicators,
                             computeMappingFromCandidates(behavior, indicators, regulations));
