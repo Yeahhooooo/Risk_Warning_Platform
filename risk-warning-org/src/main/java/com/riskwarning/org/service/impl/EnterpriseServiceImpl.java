@@ -169,9 +169,9 @@ public class EnterpriseServiceImpl implements EnterpriseService {
             return null;
         }
 
-        // 3. 在这些项目的评估记录中，取最近一次
+        // 3. 在这些项目的评估记录中，取评估ID最大的一条作为最新评估
         return assessmentRepository
-                .findFirstByProjectIdInOrderByAssessmentDateDesc(projectIds)
+                .findFirstByProjectIdInOrderByIdDesc(projectIds)
                 .orElse(null);
     }
 

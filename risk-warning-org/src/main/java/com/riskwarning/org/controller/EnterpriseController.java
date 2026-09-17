@@ -91,7 +91,7 @@ public class EnterpriseController {
 
 
     /**
-     * 按企业名称查询最近一次的评估结果
+     * 按企业名称查询评估ID最大的评估结果，允许匿名访问
      * @param name 企业名称
      * @return 最近一次评估结果，若无评估记录则 data 为 null
      */

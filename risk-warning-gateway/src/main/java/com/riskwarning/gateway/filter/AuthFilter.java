@@ -11,6 +11,7 @@ import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
@@ -31,6 +32,12 @@ public class AuthFilter implements GlobalFilter, Ordered {
         // 放行无需认证的路径
         String path = exchange.getRequest().getURI().getPath();
         if (path.contains("/login") || path.contains("/register")) {
+            return chain.filter(exchange);
+        }
+
+        // 按企业名称查询最新评估允许匿名 GET 访问。
+        if (HttpMethod.GET.equals(exchange.getRequest().getMethod())
+                && path.matches("/api/org/enterprise/[^/]+/assessment")) {
             return chain.filter(exchange);
         }
 

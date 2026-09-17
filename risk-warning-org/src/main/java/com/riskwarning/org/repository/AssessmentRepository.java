@@ -15,7 +15,7 @@ public interface AssessmentRepository extends JpaRepository<Assessment, Integer>
     Assessment findById(long l);
 
     /**
-     * 在指定项目ID集合中，按评估日期降序取最近一条评估记录
+     * 在指定项目ID集合中，取评估ID最大的一条记录作为最新评估
      */
-    Optional<Assessment> findFirstByProjectIdInOrderByAssessmentDateDesc(Collection<Long> projectIds);
+    Optional<Assessment> findFirstByProjectIdInOrderByIdDesc(Collection<Long> projectIds);
 }
