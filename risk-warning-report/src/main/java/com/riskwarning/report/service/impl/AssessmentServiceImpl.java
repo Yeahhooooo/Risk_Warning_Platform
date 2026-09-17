@@ -21,6 +21,7 @@ import com.riskwarning.report.repository.ProjectRepository;
 import com.riskwarning.report.repository.IndicatorResultRepository;
 import com.riskwarning.report.service.AssessmentService;
 import com.riskwarning.report.service.ReportService;
+import com.riskwarning.report.util.AssessmentScores;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -70,13 +71,12 @@ public class AssessmentServiceImpl implements AssessmentService {
             throw new IllegalStateException("No indicator results for assessmentId: " + assessmentId);
         }
         List<Risk> risks = new ArrayList<>();
-        double totalScore = 0.0;
+        Double totalScore = AssessmentScores.percentage(indicatorResults);
+        if (totalScore == null) throw new IllegalStateException("No valid indicator scores for assessmentId: " + assessmentId);
         int lowRiskCount = 0, mediumRiskCount = 0, highRiskCount = 0, totalRiskCount = 0;
         for(IndicatorResult ir : indicatorResults){
-            double calculatedScore = ir.getCalculatedScore().doubleValue();
-            double maxScore = ir.getMaxPossibleScore().doubleValue() == 0.0 ? calculatedScore : ir.getMaxPossibleScore().doubleValue();
-            totalScore += calculatedScore;
-            double scoreRatio = calculatedScore / maxScore;
+            Double scoreRatio = AssessmentScores.ratio(ir);
+            if (scoreRatio == null) continue;
             if(scoreRatio < THRESHOLD_RATIO) {
                 totalRiskCount++;
                 RiskLevelEnum riskLevelEnum = RiskLevelEnum.getByScoreRatio(scoreRatio);
@@ -139,11 +139,11 @@ public class AssessmentServiceImpl implements AssessmentService {
 //            // TODO: 总风险等级依靠owRiskCount, mediumRiskCoun, highRiskCount来设置
         assessment.setOverallRiskLevel(RiskLevelEnum.getByRiskCount(lowRiskCount, mediumRiskCount, highRiskCount));
         assessment.setStatus(AssessmentStatusEnum.ASSESSED);
+        assessment.setAssessmentDate(LocalDateTime.now());
         assessment.setDetails(JSON.toJSONString(new AssessmentGeneralDetails(
                 reportService.assembleGeneral(assessment, risks),
                 reportService.assembleIndicatorResult(assessment)
         )));
-        assessment.setAssessmentDate(LocalDateTime.now());
         // 汇总报告完成后立即刷新到数据库；这也是完成状态的最后一道确认。
         assessmentRepository.saveAndFlush(assessment);
         log.info("评估完成状态已持久化，assessmentId={}, status={}", assessmentId, assessment.getStatus());

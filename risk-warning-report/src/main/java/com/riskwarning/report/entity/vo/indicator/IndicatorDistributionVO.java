@@ -23,6 +23,11 @@ public class IndicatorDistributionVO {
 
     private Double totalScore;
 
+    // All report scores use a 0-100 scale; the original database scores are retained.
+    private Double maxScore;
+
+    private List<IndicatorScoreVO> indicatorScores;
+
     private Integer totalCount;
 
     private Integer riskTriggeredCount;

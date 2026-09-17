@@ -20,6 +20,7 @@ import com.riskwarning.report.entity.vo.risk.RiskVO;
 import com.riskwarning.report.repository.AssessmentRepository;
 import com.riskwarning.report.repository.IndicatorResultRepository;
 import com.riskwarning.report.service.ReportService;
+import com.riskwarning.report.util.AssessmentScores;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,113 +46,74 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     public IndicatorDistributionVO assembleIndicatorResult(Assessment assessment) {
-
-        // 检查assessment的detail属性是否已经存在indicatorDistribution信息，若存在则直接反序列化返回，避免重复计算
-        if(assessment.getDetails() != null && !assessment.getDetails().isEmpty()) {
-            try{
-                AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(assessment.getDetails(), AssessmentGeneralDetails.class);
-                return assessmentGeneralDetails.getIndicatorDistributionVO();
-            } catch (Exception e) {
-                log.error("评估报告已存在详细信息但反序列化失败", e);
-                throw new BusinessException("评估报告已存在详细信息但反序列化失败");
-            }
-
-        }
-        // TODO: 目前写在内存中进行聚合，之后可能考虑使用数据库进行聚合计算
-        List<IndicatorResult> indicatorResults = indicatorResultRepository.findByAssessmentId(assessment.getId());
-        IndicatorDistributionVO indicatorDistributionVO = new IndicatorDistributionVO();
-        indicatorDistributionVO.setAssessmentId(assessment.getId());
-        indicatorDistributionVO.setRiskDimensionEnum(null);
-        indicatorDistributionVO.setTotalScore(assessment.getOverallScore());
-        indicatorDistributionVO.setTotalCount(indicatorResults.size());
-        indicatorDistributionVO.setSafeCount(0);
-        indicatorDistributionVO.setRiskTriggeredCount(0);
-        indicatorDistributionVO.setAssessmentTime(assessment.getAssessmentDate());
-        indicatorDistributionVO.setScoreDistributions(new ArrayList<>());
-        indicatorDistributionVO.setDimensionDistributions(new HashMap<>());
-
-        for(int i = 0;i < 4;i++){
-            indicatorDistributionVO.getScoreDistributions().add(
-                    ScoreRatioDistributionItemVO.builder()
-                            .startScoreRatio(i * 0.25)
-                            .endScoreRatio((i + 1) * 0.25)
-                            .ratio(0.0)
-                            .totalScore(0.0)
-                            .totalCount(0)
-                            .riskTriggeredCount(0)
-                            .safeCount(0)
-                            .build()
-            );
-        }
-
-        for(IndicatorResult indicatorResult : indicatorResults) {
-            // 计算分数分布
-            if(indicatorResult.getRiskTriggered()){
-                indicatorDistributionVO.setRiskTriggeredCount(indicatorDistributionVO.getRiskTriggeredCount() + 1);
-            } else {
-                indicatorDistributionVO.setSafeCount(indicatorDistributionVO.getSafeCount() + 1);
-            }
-            // 计算总体分数分布
-            int targetIndex = (int)Math.min(3, Math.floor((indicatorResult.getCalculatedScore() /
-                    (indicatorResult.getMaxPossibleScore() == 0.0 ? indicatorResult.getCalculatedScore() : indicatorResult.getMaxPossibleScore())) / 0.25));
-            ScoreRatioDistributionItemVO scoreRatioDistributionItemVO = indicatorDistributionVO.getScoreDistributions().get(targetIndex);
-            scoreRatioDistributionItemVO.setTotalCount(scoreRatioDistributionItemVO.getTotalCount() + 1);
-            scoreRatioDistributionItemVO.setTotalScore(scoreRatioDistributionItemVO.getTotalScore() + indicatorResult.getCalculatedScore());
-            if(indicatorResult.getRiskTriggered()){
-                scoreRatioDistributionItemVO.setRiskTriggeredCount(scoreRatioDistributionItemVO.getRiskTriggeredCount() + 1);
-            } else {
-                scoreRatioDistributionItemVO.setSafeCount(scoreRatioDistributionItemVO.getSafeCount() + 1);
-            }
-            //计算各维度
-            IndicatorDistributionVO dimensionVO = indicatorDistributionVO.getDimensionDistributions()
-                    .getOrDefault(RiskDimensionEnum.fromValue(indicatorResult.getDimension()),
-                            IndicatorDistributionVO.builder()
-                                    .riskDimensionEnum(RiskDimensionEnum.fromValue(indicatorResult.getDimension()))
-                                    .assessmentId(assessment.getId())
-                                    .assessmentTime(assessment.getAssessmentDate())
-                                    .totalScore(0.0)
-                                    .totalCount(0)
-                                    .riskTriggeredCount(0)
-                                    .safeCount(0)
-                                    .assessmentTime(assessment.getAssessmentDate())
-                                    .scoreDistributions(new ArrayList<>())
-                                    .dimensionDistributions(new HashMap<>())
-                                    .build());
-            for(int i = 0;i < 4;i++){
-                if(dimensionVO.getScoreDistributions().size() < 4){
-                    dimensionVO.getScoreDistributions().add(
-                            ScoreRatioDistributionItemVO.builder()
-                                    .startScoreRatio(i * 0.25)
-                                    .endScoreRatio((i + 1) * 0.25)
-                                    .ratio(0.0)
-                                    .totalScore(0.0)
-                                    .totalCount(0)
-                                    .riskTriggeredCount(0)
-                                    .safeCount(0)
-                                    .build()
-                    );
-                }
-            }
-            dimensionVO.setTotalCount(dimensionVO.getTotalCount() + 1);
-            dimensionVO.setTotalScore(dimensionVO.getTotalScore() + indicatorResult.getCalculatedScore());
-            if(indicatorResult.getRiskTriggered()){
-                dimensionVO.setRiskTriggeredCount(dimensionVO.getRiskTriggeredCount() + 1);
-            } else {
-                dimensionVO.setSafeCount(dimensionVO.getSafeCount() + 1);
-            }
-            indicatorDistributionVO.getDimensionDistributions().put(RiskDimensionEnum.fromValue(indicatorResult.getDimension()), dimensionVO);
-        }
-
-        return indicatorDistributionVO;
+        // Old cached reports contain sums, so recompute scores from the original indicator records.
+        return buildDistribution(assessment, indicatorResultRepository.findByAssessmentId(assessment.getId()), null);
     }
 
+    private IndicatorDistributionVO buildDistribution(Assessment assessment, List<IndicatorResult> rows,
+                                                       RiskDimensionEnum dimension) {
+        IndicatorDistributionVO result = IndicatorDistributionVO.builder()
+                .assessmentId(assessment.getId()).assessmentTime(assessment.getAssessmentDate())
+                .riskDimensionEnum(dimension).totalScore(AssessmentScores.percentage(rows)).maxScore(100.0)
+                .totalCount(rows.size()).riskTriggeredCount(0).safeCount(0)
+                .scoreDistributions(new ArrayList<>()).dimensionDistributions(new HashMap<>())
+                .indicatorScores(new ArrayList<>()).build();
+        List<List<IndicatorResult>> buckets = new ArrayList<>();
+        for (int i = 0; i < 4; i++) buckets.add(new ArrayList<>());
+        java.util.Map<RiskDimensionEnum, List<IndicatorResult>> dimensions = new java.util.LinkedHashMap<>();
+        for (IndicatorResult row : rows) {
+            boolean triggered = Boolean.TRUE.equals(row.getRiskTriggered());
+            if (triggered) result.setRiskTriggeredCount(result.getRiskTriggeredCount() + 1);
+            else result.setSafeCount(result.getSafeCount() + 1);
+            Double ratio = AssessmentScores.ratio(row);
+            result.getIndicatorScores().add(com.riskwarning.report.entity.vo.indicator.IndicatorScoreVO.builder()
+                    .indicatorId(row.getIndicatorEsId()).indicatorName(row.getIndicatorName()).dimension(row.getDimension())
+                    .score(AssessmentScores.percentage(row)).maxScore(100.0).riskTriggered(triggered)
+                    .riskLevel(ratio == null ? null : RiskLevelEnum.getByScoreRatio(ratio)).build());
+            if (ratio != null) buckets.get(Math.min(3, (int) (ratio / 0.25))).add(row);
+            if (dimension == null) dimensions.computeIfAbsent(RiskDimensionEnum.fromValue(row.getDimension()),
+                    key -> new ArrayList<>()).add(row);
+        }
+        for (int i = 0; i < 4; i++) {
+            List<IndicatorResult> bucket = buckets.get(i);
+            int triggered = (int) bucket.stream().filter(row -> Boolean.TRUE.equals(row.getRiskTriggered())).count();
+            result.getScoreDistributions().add(ScoreRatioDistributionItemVO.builder()
+                    .startScoreRatio(i * 0.25).endScoreRatio((i + 1) * 0.25)
+                    .ratio(rows.isEmpty() ? 0.0 : (double) bucket.size() / rows.size())
+                    .totalScore(AssessmentScores.percentage(bucket)).totalCount(bucket.size())
+                    .riskTriggeredCount(triggered).safeCount(bucket.size() - triggered).build());
+        }
+        dimensions.forEach((key, values) -> result.getDimensionDistributions().put(key, buildDistribution(assessment, values, key)));
+        return result;
+    }
     @Override
     public List<RiskVO> assembleRisk(Long assessmentId) {
         List<Risk> risks = fetchRisksFromES(assessmentId);
+        List<IndicatorResult> indicatorResults = indicatorResultRepository.findByAssessmentId(assessmentId);
         List<RiskVO> riskVOList = new ArrayList<>();
         for(Risk risk : risks) {
             RiskVO riskVO = new RiskVO();
             BeanUtils.copyProperties(risk, riskVO);
+            riskVO.setMaxScore(100.0);
+            if (risk.getRelatedIndicators() != null) {
+                java.util.Set<String> ids = new java.util.HashSet<>();
+                List<com.riskwarning.common.po.risk.RelatedIndicator> evidence = new ArrayList<>();
+                for (com.riskwarning.common.po.risk.RelatedIndicator original : risk.getRelatedIndicators()) {
+                    if (original == null) continue;
+                    ids.add(original.getIndicatorId());
+                    com.riskwarning.common.po.risk.RelatedIndicator copy = new com.riskwarning.common.po.risk.RelatedIndicator();
+                    BeanUtils.copyProperties(original, copy);
+                    // Stored behavior evidence is a 0-1 compliance ratio, not an absolute indicator score.
+                    Double raw = original.getScore();
+                    copy.setScore(raw == null || !Double.isFinite(raw) ? null
+                            : AssessmentScores.round(Math.max(0, Math.min(1, raw)) * 100));
+                    copy.setMaxScore(100.0);
+                    evidence.add(copy);
+                }
+                riskVO.setRelatedIndicators(evidence);
+                riskVO.setScore(AssessmentScores.percentage(indicatorResults.stream()
+                        .filter(row -> ids.contains(row.getIndicatorEsId())).collect(java.util.stream.Collectors.toList())));
+            }
 
             if (risk.getRiskLevel() != null) {
                 riskVO.setRiskLevel(risk.getRiskLevel().name());
@@ -173,7 +135,10 @@ public class ReportServiceImpl implements ReportService {
         if(assessment.getDetails() != null && !assessment.getDetails().isEmpty()) {
             try{
                 AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(assessment.getDetails(), AssessmentGeneralDetails.class);
-                return assessmentGeneralDetails.getAssessmentDetailVO();
+                AssessmentDetailVO general = assessmentGeneralDetails.getAssessmentDetailVO();
+                general.getOverallResult().setOverallScore(AssessmentScores.percentage(
+                        indicatorResultRepository.findByAssessmentId(assessment.getId())));
+                return general;
             } catch (Exception e) {
                 log.error("评估报告已存在详细信息但反序列化失败", e);
                 throw new BusinessException("评估报告已存在详细信息但反序列化失败");
@@ -197,7 +162,7 @@ public class ReportServiceImpl implements ReportService {
         assessmentDetailVO.setAssessmentId(assessment.getId());
         assessmentDetailVO.setAssessmentDate(assessment.getAssessmentDate());
         assessmentDetailVO.setOverallResult(OverallResult.builder()
-                .overallScore(assessment.getOverallScore())
+                .overallScore(AssessmentScores.percentage(indicatorResultRepository.findByAssessmentId(assessment.getId())))
                 .overallRiskLevel(assessment.getOverallRiskLevel())
                 .status(assessment.getStatus())
                 .build()

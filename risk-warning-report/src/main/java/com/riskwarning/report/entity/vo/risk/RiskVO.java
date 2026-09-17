@@ -24,6 +24,11 @@ public class RiskVO {
 
     private String riskLevel;
 
+    /** Aggregate indicator score on the report's 0-100 scale. */
+    private Double score;
+
+    private Double maxScore;
+
     private double probability;
 
     private double impact;
