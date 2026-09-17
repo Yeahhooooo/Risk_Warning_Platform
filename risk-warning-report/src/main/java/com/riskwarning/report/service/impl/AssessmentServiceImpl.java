@@ -11,8 +11,11 @@ import com.riskwarning.common.enums.risk.RiskLevelEnum;
 import com.riskwarning.common.enums.risk.RiskStatusEnum;
 import com.riskwarning.common.message.NotificationMessage;
 import com.riskwarning.common.po.indicator.IndicatorResult;
+import com.riskwarning.common.po.indicator.IndicatorResultDetail;
 import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.po.project.Project;
+import com.riskwarning.common.po.risk.RelatedBehavior;
+import com.riskwarning.common.po.risk.RelatedIndicator;
 import com.riskwarning.common.po.risk.Risk;
 import com.riskwarning.common.utils.KafkaUtils;
 import com.riskwarning.report.entity.vo.AssessmentGeneralDetails;
@@ -85,11 +88,10 @@ public class AssessmentServiceImpl implements AssessmentService {
                 highRiskCount += riskLevelEnum == RiskLevelEnum.HIGH_RISK ? 1 : 0;
                 ir.setRiskTriggered(true);
                 ir.setRiskStatus(IndicatorRiskStatus.EVALUATED);
-                String indicatorName = ir.getIndicatorName();
                 Risk risk = Risk.builder()
                         .projectId(projectId)
                         .assessmentId(assessmentId)
-                        .name("指标风险-" + (indicatorName != null && !indicatorName.isEmpty() ? indicatorName : "未命名指标"))
+                        .name(buildRiskName(ir))
                         .dimension(ir.getDimension())
                         .description("")
                         .riskLevel(riskLevelEnum)
@@ -158,6 +160,50 @@ public class AssessmentServiceImpl implements AssessmentService {
 
         // 发送通知消息，通知前端评估完成
         sendAssessmentCompletedNotification(userId, projectId, assessmentId, assessment);
+    }
+
+    /** 风险名称中展示的企业行为内容条数上限 */
+    private final static int RISK_NAME_BEHAVIOR_LIMIT = 3;
+    /** 单条行为内容在风险名称中的最大展示长度 */
+    private final static int RISK_NAME_BEHAVIOR_MAX_LEN = 30;
+
+    /**
+     * 构建风险名称：回溯该指标结果关联的企业行为文档内容（RelatedBehavior.description），
+     * 取前若干条去重、截断后拼接展示；若无法回溯到行为内容，则回退到指标名称。
+     */
+    private String buildRiskName(IndicatorResult ir) {
+        List<String> behaviors = new ArrayList<>();
+        IndicatorResultDetail details = ir.getCalculationDetails();
+        if (details != null && details.getRelatedIndicators() != null) {
+            for (RelatedIndicator relatedIndicator : details.getRelatedIndicators()) {
+                if (relatedIndicator == null || relatedIndicator.getRelatedBehaviors() == null) continue;
+                for (RelatedBehavior behavior : relatedIndicator.getRelatedBehaviors()) {
+                    if (behavior == null) continue;
+                    String desc = behavior.getDescription();
+                    if (desc == null) continue;
+                    desc = desc.trim();
+                    if (desc.isEmpty() || behaviors.contains(desc)) continue;
+                    behaviors.add(desc);
+                    if (behaviors.size() >= RISK_NAME_BEHAVIOR_LIMIT) break;
+                }
+                if (behaviors.size() >= RISK_NAME_BEHAVIOR_LIMIT) break;
+            }
+        }
+
+        if (behaviors.isEmpty()) {
+            // 回退：无法回溯到企业行为内容时，沿用指标名称
+            String indicatorName = ir.getIndicatorName();
+            return "指标风险-" + (indicatorName != null && !indicatorName.isEmpty() ? indicatorName : "未命名指标");
+        }
+
+        List<String> displays = new ArrayList<>();
+        for (String desc : behaviors) {
+            if (desc.length() > RISK_NAME_BEHAVIOR_MAX_LEN) {
+                desc = desc.substring(0, RISK_NAME_BEHAVIOR_MAX_LEN) + "…";
+            }
+            displays.add(desc);
+        }
+        return String.join("；", displays);
     }
 
     /**
