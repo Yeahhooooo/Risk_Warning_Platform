@@ -33,7 +33,11 @@ public class UploadTaskQueue {
     }
 
     public UploadConfirmDto poll() {
-        return (UploadConfirmDto) redis.rightPop(queueKey);
+        return (UploadConfirmDto) redis.claimListItem(queueKey, queueKey + ":processing");
+    }
+
+    public void acknowledge(Object task) {
+        redis.acknowledgeListItem(queueKey + ":processing", task);
     }
 
     public String getQueueKey() {

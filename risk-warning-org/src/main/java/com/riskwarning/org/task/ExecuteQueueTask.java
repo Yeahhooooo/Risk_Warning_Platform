@@ -1,160 +1,105 @@
 package com.riskwarning.org.task;
 
+import com.alibaba.fastjson2.JSON;
 import com.riskwarning.common.constants.Constants;
 import com.riskwarning.common.constants.RedisKey;
 import com.riskwarning.common.enums.AssessmentStatusEnum;
 import com.riskwarning.common.enums.DataSourceTypeEnum;
-import com.riskwarning.common.exception.BusinessException;
 import com.riskwarning.common.message.BehaviorProcessingTaskMessage;
 import com.riskwarning.common.po.file.ProjectFile;
 import com.riskwarning.common.po.report.Assessment;
-import com.riskwarning.common.utils.FileUtils;
-import com.riskwarning.common.utils.KafkaUtils;
-import com.riskwarning.common.utils.RedisUtil;
-import com.riskwarning.common.utils.StringUtils;
+import com.riskwarning.common.reliability.DurableWorkHandler;
+import com.riskwarning.common.reliability.DurableWorkStore;
+import com.riskwarning.common.utils.*;
 import com.riskwarning.org.entity.dto.UploadConfirmDto;
 import com.riskwarning.org.entity.dto.UploadFileDto;
 import com.riskwarning.org.repository.AssessmentRepository;
 import com.riskwarning.org.repository.FileRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.springframework.transaction.support.TransactionTemplate;
-
-import javax.annotation.PostConstruct;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.*;
+import java.util.concurrent.*;
 
+/** Redis-to-database bridge; the durable worker owns the business transaction. */
 @Component
 @Slf4j
-public class ExecuteQueueTask {
+public class ExecuteQueueTask implements DurableWorkHandler, SmartLifecycle {
+    private final UploadTaskQueue queue;
+    private final DurableWorkStore store;
+    private final RedisUtil redis;
+    private final FileRepository files;
+    private final AssessmentRepository assessments;
+    private final KafkaUtils kafka;
+    private volatile boolean running;
+    private ScheduledExecutorService executor;
 
-    private ExecutorService executorService = Executors.newFixedThreadPool(10);
-
-
-    @Autowired
-    private RedisUtil redisUtil;
-
-    @Autowired
-    private FileRepository fileRepository;
-
-    @Autowired
-    private AssessmentRepository assessmentRepository;
-
-    @Autowired
-    private KafkaUtils kafkaUtils;
-
-    @Autowired
-    private TransactionTemplate transactionTemplate;
-
-    @Autowired
-    private UploadTaskQueue uploadTaskQueue;
-
-    @PostConstruct
-    public void consumeTransferQueue() {
-        executorService.execute(() -> {
-            log.info("[AssessmentFlow] stage=UPLOAD_QUEUE status=START queueKey={}", uploadTaskQueue.getQueueKey());
-            while (true) {
-                UploadConfirmDto uploadConfirmDto = uploadTaskQueue.poll();
-                if(uploadConfirmDto == null) {
-                    try {
-                        Thread.sleep(1000); // 如果队列为空，等待1秒后再检查
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
-                    continue;
-                }
-                log.info("[AssessmentFlow] stage=UPLOAD_QUEUE status=RECEIVED projectId={}", uploadConfirmDto.getProjectId());
-                executorService.execute(() -> {
-                    long started = System.nanoTime();
-                    log.info("[AssessmentFlow] stage=FILE_MERGE status=START projectId={}", uploadConfirmDto.getProjectId());
-                    transactionTemplate.execute(status -> {
-                        try {
-                            Map<Object, Object> uploadFileMap = redisUtil.hmget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, uploadConfirmDto.getProjectId()));
-                            ProjectFile projectFile = ProjectFile.builder()
-                                    .projectId(uploadConfirmDto.getProjectId())
-                                    .filePaths(new ArrayList<>())
-                                    .build();
-                            for(Object value : uploadFileMap.values()) {
-                                UploadFileDto uploadFileDto = (UploadFileDto) value;
-                                // todo: 文件需要保存到远程存储，这里只是本地合并，后续需要改造
-                                String targetFilePath = Constants.getPersistFileDirPath(uploadFileDto.getProjectId())
-                                        + StringUtils.generateFileName(uploadFileDto.getProjectId(), uploadFileDto.getUploadId()) + "." + uploadFileDto.getFileSuffix();
-                                FileUtils.union(
-                                        uploadFileDto.getFilePath(),
-                                        targetFilePath,
-                                        true
-                                );
-
-                                projectFile.setUserId(uploadFileDto.getUserId());
-                                projectFile.getFilePaths().add(targetFilePath);
-                            }
-                            fileRepository.save(projectFile);
-                            log.info("[AssessmentFlow] stage=FILE_MERGE status=DONE projectId={} fileCount={} elapsedMs={}",
-                                    uploadConfirmDto.getProjectId(), projectFile.getFilePaths().size(), (System.nanoTime() - started) / 1_000_000);
-
-
-                            // todo: 创建Assessment实体
-                            Assessment assessment = Assessment.builder()
-                                    .projectId(uploadConfirmDto.getProjectId())
-                                    .assessmentDate(null)
-                                    .overallScore(null)
-                                    .overallRiskLevel(null)
-                                    .details(null)
-                                    .status(AssessmentStatusEnum.TO_BE_ASSESSED)
-                                    .createdAt(LocalDateTime.now())
-                                    .build();
-
-                            assessmentRepository.save(assessment);
-                            // 先构造消息，但必须等当前数据库事务提交成功后再发送。
-                            // 否则 processing 服务可能先消费消息，却查不到尚未提交的 Assessment。
-                            BehaviorProcessingTaskMessage behaviorProcessingTaskMessage = new BehaviorProcessingTaskMessage(
-                                    StringUtils.generateMessageId(),
-                                    String.valueOf(System.currentTimeMillis()),
-                                    StringUtils.generateTraceId(),
-                                    uploadConfirmDto.getUserId(),
-                                    uploadConfirmDto.getProjectId(),
-                                    assessment.getId(),
-                                    DataSourceTypeEnum.FILE_UPLOAD,
-                                    projectFile.getFilePaths()
-                            );
-                            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                                @Override
-                                public void afterCommit() {
-                                    log.info("[AssessmentFlow] stage=ASSESSMENT_CREATE status=COMMITTED projectId={} assessmentId={}",
-                                            behaviorProcessingTaskMessage.getProjectId(), behaviorProcessingTaskMessage.getAssessmentId());
-                                    kafkaUtils.sendMessage(behaviorProcessingTaskMessage);
-                                    log.info("数据库事务已提交，评估任务消息已提交发送，broker确认请查看KAFKA_SEND ACK，projectId={}, assessmentId={}",
-                                            behaviorProcessingTaskMessage.getProjectId(),
-                                            behaviorProcessingTaskMessage.getAssessmentId());
-                                }
-                            });
-                            return true;
-                        } catch (Exception e) {
-                            log.error("[AssessmentFlow] stage=UPLOAD_PREPARE status=FAILED projectId={} elapsedMs={}",
-                                    uploadConfirmDto.getProjectId(), (System.nanoTime() - started) / 1_000_000, e);
-                            log.error("Error processing file upload confirm queue", e);
-                            if(uploadConfirmDto != null && uploadConfirmDto.getRetryCount() >= Constants.UPLOAD_CONFIRM_RETRY_LIMIT) {
-                                throw new BusinessException("项目" + uploadConfirmDto.getProjectId() + "文件确认失败，重试次数已达上限");
-                            }
-                            return false;
-                        } finally {
-                            // 删除缓存
-                            redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE, uploadConfirmDto.getProjectId()));
-                            redisUtil.del(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, uploadConfirmDto.getProjectId()));
-                            FileUtils.delDirectory(Constants.getTempFileDirPath(uploadConfirmDto.getProjectId(), ""));
-                        }
-                    });
-                });
-            }
-        });
-
+    public ExecuteQueueTask(UploadTaskQueue queue, DurableWorkStore store, RedisUtil redis,
+            FileRepository files, AssessmentRepository assessments, KafkaUtils kafka) {
+        this.queue = queue; this.store = store; this.redis = redis;
+        this.files = files; this.assessments = assessments; this.kafka = kafka;
     }
 
+    public void handoffOne() {
+        UploadConfirmDto original = queue.poll();
+        if (original == null) return;
+        // Keep the Redis value unchanged so recovery retains its stable identity.
+        UploadConfirmDto task = JSON.parseObject(JSON.toJSONString(original), UploadConfirmDto.class);
+        if (task.getTaskId() == null) {
+            task.setTaskId(UUID.nameUUIDFromBytes((queue.getQueueKey() + "\n" + JSON.toJSONString(original))
+                    .getBytes(StandardCharsets.UTF_8)).toString());
+        }
+        if (task.getFiles() == null) {
+            Map<Object, Object> metadata = redis.hmget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, task.getProjectId()));
+            List<UploadFileDto> snapshot = new ArrayList<>();
+            if (metadata != null) for (Object value : metadata.values()) snapshot.add((UploadFileDto) value);
+            task.setFiles(snapshot);
+        }
+        store.enqueue(kind(), task.getTaskId(), JSON.toJSONString(task));
+        queue.acknowledge(original);
+        log.info("[AssessmentFlow] stage=UPLOAD_HANDOFF status=PERSISTED projectId={} taskId={}", task.getProjectId(), task.getTaskId());
+    }
+
+    public String kind() { return "UPLOAD_INBOX"; }
+
+    public void execute(String payload) {
+        UploadConfirmDto task = JSON.parseObject(payload, UploadConfirmDto.class);
+        if (task.getFiles() == null || task.getFiles().isEmpty()) {
+            throw new IllegalStateException("Upload metadata missing; source input retained for recovery");
+        }
+        ProjectFile projectFile = ProjectFile.builder().projectId(task.getProjectId())
+                .userId(task.getUserId()).filePaths(new ArrayList<>()).build();
+        for (UploadFileDto file : task.getFiles()) {
+            String target = Constants.getPersistFileDirPath(task.getProjectId())
+                    + StringUtils.generateFileName(task.getProjectId(), file.getUploadId()) + "." + file.getFileSuffix();
+            FileUtils.union(file.getFilePath(), target, false);
+            projectFile.getFilePaths().add(target);
+        }
+        files.save(projectFile);
+        Assessment assessment = Assessment.builder().projectId(task.getProjectId())
+                .status(AssessmentStatusEnum.TO_BE_ASSESSED).createdAt(LocalDateTime.now()).build();
+        assessments.save(assessment);
+        kafka.sendMessage(new BehaviorProcessingTaskMessage(task.getTaskId() + "-behavior",
+                String.valueOf(System.currentTimeMillis()), task.getTaskId(), task.getUserId(),
+                task.getProjectId(), assessment.getId(), DataSourceTypeEnum.FILE_UPLOAD, projectFile.getFilePaths()));
+    }
+
+    public synchronized void start() {
+        if (running) return;
+        running = true;
+        executor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread thread = new Thread(r, "upload-durable-handoff"); thread.setDaemon(true); return thread;
+        });
+        executor.scheduleWithFixedDelay(() -> {
+            try { handoffOne(); }
+            catch (Exception failure) { log.error("Upload handoff failed; Redis task retained for retry", failure); }
+        }, 1, 1, TimeUnit.SECONDS);
+    }
+    public synchronized void stop() {
+        running = false;
+        if (executor != null) executor.shutdownNow();
+    }
+    public boolean isRunning() { return running; }
 }

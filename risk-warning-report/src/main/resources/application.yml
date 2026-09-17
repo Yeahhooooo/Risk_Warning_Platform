@@ -1,2 +1,7 @@
 server:
   port: 8093
+
+assessment:
+  reliability:
+    enabled: true
+    namespace: ${ASSESSMENT_WORK_NAMESPACE:${COMPUTERNAME:local}}-report

@@ -62,6 +62,9 @@ public class FileUtils {
             throw new BusinessException("目录不存在或不是一个目录");
         }
         File[] fileList = dir.listFiles();
+        if (fileList == null || fileList.length == 0) {
+            throw new BusinessException("分片目录为空或无法读取");
+        }
 
         // todo: 保存到远程存储需要改造
         File targetFile = new File(toFilePath);
@@ -70,10 +73,11 @@ public class FileUtils {
             targetParentDir.mkdirs();
         }
         try(RandomAccessFile writeFile = new RandomAccessFile(targetFile, "rw")) {
+            writeFile.setLength(0);
             // 因为可能乱序到达，需要先排序
             Arrays.sort(fileList, new Comparator<File>() {
                 public  int compare(File o1, File o2) {
-                    return o1.getName().compareTo(o2.getName());
+                    return Integer.compare(Integer.parseInt(o1.getName()), Integer.parseInt(o2.getName()));
                 }
             });
             for(File file : fileList){
@@ -93,7 +97,7 @@ public class FileUtils {
         } catch (Exception e) {
             log.error("合并文件失败，error: {}", e.getMessage());
             throw new BusinessException("合并文件失败");
-        } finally {
+        }
             if(delSource){
                 for(File file : fileList){
                     if(file.isDirectory()){
@@ -103,7 +107,6 @@ public class FileUtils {
                     }
                 }
             }
-        }
     }
 
     public static void delDirectory(String filePath) {

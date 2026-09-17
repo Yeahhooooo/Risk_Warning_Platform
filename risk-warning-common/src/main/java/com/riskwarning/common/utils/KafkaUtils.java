@@ -16,7 +16,18 @@ public class KafkaUtils {
     @Autowired
     private KafkaTemplate<String, Message> kafkaTemplate;
 
+    @Autowired(required = false)
+    private com.riskwarning.common.reliability.DurableWorkStore durableWorkStore;
+
     public  void sendMessage(Message message) {
+        if (durableWorkStore != null) {
+            com.alibaba.fastjson2.JSONObject envelope = new com.alibaba.fastjson2.JSONObject();
+            envelope.put("messageClass", message.getClass().getSimpleName());
+            envelope.put("message", message);
+            durableWorkStore.enqueue("KAFKA_OUTBOX", message.getMessageId(), envelope.toJSONString());
+            log.info("[AssessmentFlow] stage=KAFKA_OUTBOX status=PERSISTED messageId={}", message.getMessageId());
+            return;
+        }
         String topic = message.getTopic().getTopicName();
         long started = System.nanoTime();
         log.info("[AssessmentFlow] stage=KAFKA_SEND status=START topic={} projectId={} assessmentId={} messageId={} traceId={}",

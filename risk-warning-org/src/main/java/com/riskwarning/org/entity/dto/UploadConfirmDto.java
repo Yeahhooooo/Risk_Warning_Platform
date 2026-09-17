@@ -21,4 +21,8 @@ public class UploadConfirmDto implements Serializable {
 
     private Integer retryCount;
 
+    private String taskId;
+
+    private java.util.List<UploadFileDto> files;
+
 }

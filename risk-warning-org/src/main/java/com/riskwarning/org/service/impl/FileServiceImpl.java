@@ -140,6 +140,9 @@ public class FileServiceImpl implements FileService {
                         .projectId(projectId)
                         .userId(UserContext.getUser().getId())
                         .retryCount(0)
+                        .taskId(java.util.UUID.randomUUID().toString())
+                        .files(uploadFileMap.values().stream().map(value -> (UploadFileDto) value)
+                                .collect(java.util.stream.Collectors.toList()))
                         .build()
         );
     }

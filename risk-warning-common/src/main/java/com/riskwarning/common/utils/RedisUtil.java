@@ -27,6 +27,34 @@ public class RedisUtil {
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
 
+    private final ThreadLocal<Map<String, byte[]>> claimedBytes =
+            ThreadLocal.withInitial(java.util.HashMap::new);
+
+    /** Recover an unacknowledged value before atomically claiming another one. */
+    public Object claimListItem(String readyKey, String pendingKey) {
+        byte[] ready = redisTemplate.getStringSerializer().serialize(readyKey);
+        byte[] pending = redisTemplate.getStringSerializer().serialize(pendingKey);
+        byte[] raw = redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<byte[]>) connection -> {
+            byte[] existing = connection.lIndex(pending, 0);
+            return existing != null ? existing : connection.rPopLPush(ready, pending);
+        });
+        if (raw == null) return null;
+        Object value = redisTemplate.getValueSerializer().deserialize(raw);
+        if (value == null) throw new IllegalStateException("Cannot deserialize claimed upload task");
+        claimedBytes.get().put(pendingKey, raw);
+        return value;
+    }
+
+    /** Acknowledge on the claiming thread using the original serialization bytes. */
+    public void acknowledgeListItem(String pendingKey, Object value) {
+        byte[] raw = claimedBytes.get().get(pendingKey);
+        if (raw == null) throw new IllegalStateException("No claimed task for " + pendingKey);
+        redisTemplate.execute((org.springframework.data.redis.core.RedisCallback<Long>) connection ->
+                connection.lRem(redisTemplate.getStringSerializer().serialize(pendingKey), 1, raw));
+        claimedBytes.get().remove(pendingKey);
+        if (claimedBytes.get().isEmpty()) claimedBytes.remove();
+    }
+
     // =============================common============================
     /**
      * 指定缓存失效时间

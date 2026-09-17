@@ -1,6 +1,11 @@
 server:
   port: 8084
 
+assessment:
+  reliability:
+    enabled: true
+    namespace: ${ASSESSMENT_WORK_NAMESPACE:${COMPUTERNAME:local}}-processing
+
 # BERT 分类服务配置
 bert:
   service:
