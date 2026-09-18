@@ -14,6 +14,8 @@ import java.util.List;
 @AllArgsConstructor
 public class RelatedBehavior {
 
+    private String behaviorId;
+
     private Long projectId;
 
     private String description;

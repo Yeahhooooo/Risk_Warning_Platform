@@ -2,6 +2,7 @@ package com.riskwarning.common.po.indicator;
 
 
 import com.vladmihalcea.hibernate.type.json.JsonBinaryType;
+import com.vladmihalcea.hibernate.type.array.StringArrayType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,6 +31,7 @@ import java.time.OffsetDateTime;
 @Table(name = "t_indicator_result")
 @TypeDef(name = "pgsql_enum", typeClass = PostgreSQLEnumType.class)
 @TypeDef(name = "jsonb", typeClass = JsonBinaryType.class)
+@TypeDef(name = "string-array", typeClass = StringArrayType.class)
 public class IndicatorResult implements Serializable {
     private static final long serialVersionUID = 1L;
 
@@ -82,6 +84,11 @@ public class IndicatorResult implements Serializable {
     @Type(type = "jsonb")
     @Column(name = "calculation_details", columnDefinition = "jsonb")
     private IndicatorResultDetail calculationDetails;
+
+    // PostgreSQL TEXT[]: distinct ES IDs of behaviors contributing to this indicator.
+    @Type(type = "string-array")
+    @Column(name = "matched_behaviors_ids", columnDefinition = "text[]")
+    private String[] matchedBehaviorIds;
 
     // risk_triggered BOOLEAN NOT NULL DEFAULT FALSE
     @Column(name = "risk_triggered", nullable = false)

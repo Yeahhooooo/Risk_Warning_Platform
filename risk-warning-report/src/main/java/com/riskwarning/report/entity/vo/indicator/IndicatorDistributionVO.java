@@ -2,6 +2,8 @@ package com.riskwarning.report.entity.vo.indicator;
 
 
 import com.riskwarning.common.enums.RiskDimensionEnum;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.riskwarning.report.util.ReportRiskDimensions;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,6 +19,7 @@ import java.util.Map;
 @AllArgsConstructor
 public class IndicatorDistributionVO {
 
+    @JsonSerialize(using = ReportRiskDimensions.ValueSerializer.class)
     private RiskDimensionEnum riskDimensionEnum;// 为空表示总体维度
 
     private Long assessmentId;
@@ -38,6 +41,7 @@ public class IndicatorDistributionVO {
 
     private List<ScoreRatioDistributionItemVO> scoreDistributions;
 
+    @JsonSerialize(keyUsing = ReportRiskDimensions.KeySerializer.class)
     private Map<RiskDimensionEnum, IndicatorDistributionVO> dimensionDistributions;
 
 }

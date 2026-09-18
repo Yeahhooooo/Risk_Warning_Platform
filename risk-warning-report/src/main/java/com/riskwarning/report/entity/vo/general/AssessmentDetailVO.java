@@ -2,6 +2,8 @@ package com.riskwarning.report.entity.vo.general;
 
 
 import com.riskwarning.common.enums.RiskDimensionEnum;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.riskwarning.report.util.ReportRiskDimensions;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -23,6 +25,7 @@ public class AssessmentDetailVO {
 
     private IndicatorOverview indicatorOverview;
 
+    @JsonSerialize(keyUsing = ReportRiskDimensions.KeySerializer.class)
     private Map<RiskDimensionEnum, DimensionRiskDistribution> dimensionRiskDistribution;
 
 

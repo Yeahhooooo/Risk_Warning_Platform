@@ -21,6 +21,7 @@ import com.riskwarning.report.repository.AssessmentRepository;
 import com.riskwarning.report.repository.IndicatorResultRepository;
 import com.riskwarning.report.service.ReportService;
 import com.riskwarning.report.util.AssessmentScores;
+import com.riskwarning.report.util.ReportRiskDimensions;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,11 +68,12 @@ public class ReportServiceImpl implements ReportService {
             else result.setSafeCount(result.getSafeCount() + 1);
             Double ratio = AssessmentScores.ratio(row);
             result.getIndicatorScores().add(com.riskwarning.report.entity.vo.indicator.IndicatorScoreVO.builder()
-                    .indicatorId(row.getIndicatorEsId()).indicatorName(row.getIndicatorName()).dimension(row.getDimension())
+                    .indicatorId(row.getIndicatorEsId()).indicatorName(row.getIndicatorName()).dimension(ReportRiskDimensions.normalize(row.getDimension()))
+                    .relatedBehaviors(behaviorDescriptions(row))
                     .score(AssessmentScores.percentage(row)).maxScore(100.0).riskTriggered(triggered)
                     .riskLevel(ratio == null ? null : RiskLevelEnum.getByScoreRatio(ratio)).build());
             if (ratio != null) buckets.get(Math.min(3, (int) (ratio / 0.25))).add(row);
-            if (dimension == null) dimensions.computeIfAbsent(RiskDimensionEnum.fromValue(row.getDimension()),
+            if (dimension == null) dimensions.computeIfAbsent(ReportRiskDimensions.parse(row.getDimension()),
                     key -> new ArrayList<>()).add(row);
         }
         for (int i = 0; i < 4; i++) {
@@ -86,6 +88,22 @@ public class ReportServiceImpl implements ReportService {
         dimensions.forEach((key, values) -> result.getDimensionDistributions().put(key, buildDistribution(assessment, values, key)));
         return result;
     }
+
+    private List<String> behaviorDescriptions(IndicatorResult row) {
+        java.util.Set<String> descriptions = new java.util.LinkedHashSet<>();
+        if (row.getCalculationDetails() != null && row.getCalculationDetails().getRelatedIndicators() != null) {
+            for (com.riskwarning.common.po.risk.RelatedIndicator indicator : row.getCalculationDetails().getRelatedIndicators()) {
+                if (indicator == null || indicator.getRelatedBehaviors() == null) continue;
+                for (com.riskwarning.common.po.risk.RelatedBehavior behavior : indicator.getRelatedBehaviors()) {
+                    if (behavior != null && behavior.getDescription() != null && !behavior.getDescription().trim().isEmpty()) {
+                        descriptions.add(behavior.getDescription());
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(descriptions);
+    }
+
     @Override
     public List<RiskVO> assembleRisk(Long assessmentId) {
         List<Risk> risks = fetchRisksFromES(assessmentId);
@@ -94,6 +112,7 @@ public class ReportServiceImpl implements ReportService {
         for(Risk risk : risks) {
             RiskVO riskVO = new RiskVO();
             BeanUtils.copyProperties(risk, riskVO);
+            riskVO.setDimension(ReportRiskDimensions.normalize(risk.getDimension()));
             riskVO.setMaxScore(100.0);
             if (risk.getRelatedIndicators() != null) {
                 java.util.Set<String> ids = new java.util.HashSet<>();
@@ -175,7 +194,7 @@ public class ReportServiceImpl implements ReportService {
         }
         assessmentDetailVO.getIndicatorOverview().setBehaviorIndicators(risks.size());
         for(Risk risk : risks) {
-            RiskDimensionEnum dimensionEnum = RiskDimensionEnum.fromValue(risk.getDimension());
+            RiskDimensionEnum dimensionEnum = ReportRiskDimensions.parse(risk.getDimension());
             RiskLevelEnum riskLevelEnum = risk.getRiskLevel();
             if (riskLevelEnum == null) {
                 log.warn("[assembleGeneral] risk_level is null for risk id={}, skipping risk level aggregation", risk.getId());

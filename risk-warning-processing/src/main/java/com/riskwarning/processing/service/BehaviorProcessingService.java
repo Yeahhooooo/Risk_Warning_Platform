@@ -303,6 +303,9 @@ public class BehaviorProcessingService {
                                 .relatedIndicators(new ArrayList<>())
                                 .build();
                     }
+                    if (detail.getRelatedIndicators() == null) {
+                        detail.setRelatedIndicators(new ArrayList<>());
+                    }
 
                     // 合并相关指标
                     int existingCount = detail.getRelatedIndicators().size();
@@ -316,6 +319,8 @@ public class BehaviorProcessingService {
                     existing.setCalculatedAt(LocalDateTime.now());
                     detail.getRelatedIndicators().addAll(relatedIndicators);
                     existing.setCalculationDetails(detail);
+                    existing.setMatchedBehaviorIds(collectBehaviorIds(existing.getMatchedBehaviorIds(),
+                            detail.getRelatedIndicators()));
 
                     resultsToSave.add(existing);
                 } else {
@@ -331,6 +336,7 @@ public class BehaviorProcessingService {
                             .calculatedScore(absoluteScore)
                             .maxPossibleScore(maxPossible)
                             .usedCalculationRuleType("auto")
+                            .matchedBehaviorIds(collectBehaviorIds(null, relatedIndicators))
                             .calculationDetails(IndicatorResultDetail.builder()
                                     .relatedIndicators(new ArrayList<>(relatedIndicators))
                                     .build())
@@ -356,6 +362,24 @@ public class BehaviorProcessingService {
             log.error("[Batch Save Failed] error={}", e.getMessage(), e);
             throw new IllegalStateException("Failed to save indicator results: assessmentId=" + assessmentId, e);
         }
+    }
+
+    private String[] collectBehaviorIds(String[] existingIds, List<RelatedIndicator> calculations) {
+        Set<String> ids = new LinkedHashSet<>();
+        if (existingIds != null) {
+            for (String id : existingIds) {
+                if (id != null && !id.trim().isEmpty()) ids.add(id);
+            }
+        }
+        for (RelatedIndicator calculation : calculations) {
+            if (calculation == null || calculation.getRelatedBehaviors() == null) continue;
+            for (RelatedBehavior behavior : calculation.getRelatedBehaviors()) {
+                if (behavior != null && behavior.getBehaviorId() != null && !behavior.getBehaviorId().trim().isEmpty()) {
+                    ids.add(behavior.getBehaviorId());
+                }
+            }
+        }
+        return ids.toArray(new String[0]);
     }
 
     private void updateAssessmentStatus(Long assessmentId, AssessmentStatusEnum assessmentStatus) {
@@ -468,6 +492,7 @@ public class BehaviorProcessingService {
                         .maxScore(ind.getMaxScore())
                         .relatedBehaviors(new ArrayList<>(Collections.singletonList(
                                 RelatedBehavior.builder()
+                                        .behaviorId(behavior.getId())
                                         .projectId(behavior.getProjectId())
                                         .description(behavior.getDescription())
                                         .relatedRegulations(new ArrayList<>())
