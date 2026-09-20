@@ -7,7 +7,6 @@ import com.riskwarning.common.enums.EnterpriseRole;
 import com.riskwarning.common.po.enterprise.Enterprise;
 import com.riskwarning.common.po.enterprise.EnterpriseUser;
 import com.riskwarning.common.po.enterprise.EnterpriseUserId;
-import com.riskwarning.common.po.project.Project;
 import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.po.user.User;
 import com.riskwarning.org.repository.AssessmentRepository;
@@ -153,26 +152,20 @@ public class EnterpriseServiceImpl implements EnterpriseService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 按企业名称返回最新评估结果。
+     *
+     * <p>演示环境按需求直接返回写死的评估结果（数据来源：《JUDGE-A4DF00BA94F3 合规判定报告》与
+     * 《课题三任务三对山东XX国际贸易公司的判定结果的风险指标追溯对应文档》），不再查询数据库，
+     * 保证任意企业名称都能拿到同一套完整的评估结论。写死数据的定义见
+     * {@link com.riskwarning.common.hardcode.FixedAssessmentData}。</p>
+     *
+     * <p>原先“企业 -> 项目 -> 评估记录取最大ID”的查询逻辑已由写死数据替代。</p>
+     */
     @Override
     @Transactional(readOnly = true)
     public Assessment getLatestAssessmentByEnterpriseName(String name) {
-        // 1. 根据企业名称查找企业
-        Enterprise enterprise = enterpriseRepository.findByName(name)
-                .orElseThrow(() -> new IllegalArgumentException("enterprise not found: " + name));
-
-        // 2. 查找该企业下所有项目的ID
-        List<Long> projectIds = projectRepository.findByEnterpriseId(enterprise.getId()).stream()
-                .map(Project::getId)
-                .collect(Collectors.toList());
-
-        if (projectIds.isEmpty()) {
-            return null;
-        }
-
-        // 3. 在这些项目的评估记录中，取评估ID最大的一条作为最新评估
-        return assessmentRepository
-                .findFirstByProjectIdInOrderByIdDesc(projectIds)
-                .orElse(null);
+        return com.riskwarning.common.hardcode.FixedAssessmentData.assessment();
     }
 
 }

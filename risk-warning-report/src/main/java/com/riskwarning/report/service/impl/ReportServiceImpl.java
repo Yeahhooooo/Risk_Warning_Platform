@@ -9,6 +9,7 @@ import com.riskwarning.common.config.ElasticSearchConfig;
 import com.riskwarning.common.enums.RiskDimensionEnum;
 import com.riskwarning.common.enums.risk.RiskLevelEnum;
 import com.riskwarning.common.exception.BusinessException;
+import com.riskwarning.common.hardcode.FixedAssessmentData;
 import com.riskwarning.common.po.indicator.IndicatorResult;
 import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.po.risk.Risk;
@@ -48,7 +49,18 @@ public class ReportServiceImpl implements ReportService {
     @Override
     public IndicatorDistributionVO assembleIndicatorResult(Assessment assessment) {
         // Old cached reports contain sums, so recompute scores from the original indicator records.
-        return buildDistribution(assessment, indicatorResultRepository.findByAssessmentId(assessment.getId()), null);
+        return buildDistribution(assessment, indicatorResults(assessment.getId()), null);
+    }
+
+    /**
+     * 读取某次评估的指标结果：命中写死的演示评估时返回写死数据，否则走原有数据库查询。
+     * 这样 general / indicatorResult / risk 三个接口以及总分口径始终取自同一份数据。
+     */
+    private List<IndicatorResult> indicatorResults(Long assessmentId) {
+        if (FixedAssessmentData.matches(assessmentId)) {
+            return FixedAssessmentData.indicatorResults();
+        }
+        return indicatorResultRepository.findByAssessmentId(assessmentId);
     }
 
     private IndicatorDistributionVO buildDistribution(Assessment assessment, List<IndicatorResult> rows,
@@ -107,7 +119,7 @@ public class ReportServiceImpl implements ReportService {
     @Override
     public List<RiskVO> assembleRisk(Long assessmentId) {
         List<Risk> risks = fetchRisksFromES(assessmentId);
-        List<IndicatorResult> indicatorResults = indicatorResultRepository.findByAssessmentId(assessmentId);
+        List<IndicatorResult> indicatorResults = indicatorResults(assessmentId);
         List<RiskVO> riskVOList = new ArrayList<>();
         for(Risk risk : risks) {
             RiskVO riskVO = new RiskVO();
@@ -150,13 +162,18 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     public AssessmentDetailVO assembleGeneral(Assessment assessment) {
+        // 写死的演示评估始终按固定指标与风险实时组装，不解析 details 快照，
+        // 保证 general 与 indicatorResult / risk 三个接口口径完全一致。
+        if (FixedAssessmentData.matches(assessment.getId())) {
+            return assembleGeneralWithRisks(assessment, FixedAssessmentData.risks());
+        }
         // 检查assessment的detail属性是否已经存在general信息，若存在则直接反序列化返回，避免重复计算
         if(assessment.getDetails() != null && !assessment.getDetails().isEmpty()) {
             try{
                 AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(assessment.getDetails(), AssessmentGeneralDetails.class);
                 AssessmentDetailVO general = assessmentGeneralDetails.getAssessmentDetailVO();
                 general.getOverallResult().setOverallScore(AssessmentScores.percentage(
-                        indicatorResultRepository.findByAssessmentId(assessment.getId())));
+                        indicatorResults(assessment.getId())));
                 return general;
             } catch (Exception e) {
                 log.error("评估报告已存在详细信息但反序列化失败", e);
@@ -176,12 +193,13 @@ public class ReportServiceImpl implements ReportService {
      * 根据 assessment 与风险列表构建汇总 VO（不查 ES），并正确设置 totalRisks
      */
     private AssessmentDetailVO assembleGeneralWithRisks(Assessment assessment, List<Risk> risks) {
+        List<IndicatorResult> indicatorRows = indicatorResults(assessment.getId());
         AssessmentDetailVO assessmentDetailVO = new AssessmentDetailVO();
         assessmentDetailVO.setProjectId(assessment.getProjectId());
         assessmentDetailVO.setAssessmentId(assessment.getId());
         assessmentDetailVO.setAssessmentDate(assessment.getAssessmentDate());
         assessmentDetailVO.setOverallResult(OverallResult.builder()
-                .overallScore(AssessmentScores.percentage(indicatorResultRepository.findByAssessmentId(assessment.getId())))
+                .overallScore(AssessmentScores.percentage(indicatorRows))
                 .overallRiskLevel(assessment.getOverallRiskLevel())
                 .status(assessment.getStatus())
                 .build()
@@ -193,6 +211,14 @@ public class ReportServiceImpl implements ReportService {
             assessmentDetailVO.getDimensionRiskDistribution().put(riskDimensionEnum, new DimensionRiskDistribution());
         }
         assessmentDetailVO.getIndicatorOverview().setBehaviorIndicators(risks.size());
+        int triggeredIndicators = 0;
+        for (IndicatorResult row : indicatorRows) {
+            if (Boolean.TRUE.equals(row.getRiskTriggered())) {
+                triggeredIndicators++;
+            }
+        }
+        assessmentDetailVO.getIndicatorOverview().setRiskTriggeredIndicators(triggeredIndicators);
+        assessmentDetailVO.getIndicatorOverview().setSafeIndicators(indicatorRows.size() - triggeredIndicators);
         for(Risk risk : risks) {
             RiskDimensionEnum dimensionEnum = ReportRiskDimensions.parse(risk.getDimension());
             RiskLevelEnum riskLevelEnum = risk.getRiskLevel();
@@ -233,6 +259,10 @@ public class ReportServiceImpl implements ReportService {
 
 
     public List<Risk> fetchRisksFromES(Long assessmentId) {
+        // 写死的演示评估直接从固定数据集取风险，不再访问 ES
+        if (FixedAssessmentData.matches(assessmentId)) {
+            return FixedAssessmentData.risks();
+        }
         try {
             log.info("[Fetching Risks] assessmentId={}, dimension={}, riskLevel={}",
                     assessmentId);
