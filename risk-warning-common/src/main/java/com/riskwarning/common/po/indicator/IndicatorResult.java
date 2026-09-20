@@ -107,4 +107,13 @@ public class IndicatorResult implements Serializable {
     // created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
+
+    /**
+     * 该指标在知识库中的完整路径：维度 &gt; 二级指标 &gt; 三级指标 &gt; 三级指标项。
+     *
+     * <p>属于展示用的元数据，<b>不落库</b>（{@code @Transient}，不会为它新增表字段）；
+     * 仅写死的演示数据集（{@code FixedAssessmentData}）会填充，真实评估保持 {@code null}。</p>
+     */
+    @Transient
+    private String relatedIndicator;
 }

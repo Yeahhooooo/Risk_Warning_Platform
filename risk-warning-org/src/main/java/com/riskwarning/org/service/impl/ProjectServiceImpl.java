@@ -7,7 +7,6 @@ import com.riskwarning.common.po.project.Project;
 import com.riskwarning.common.po.project.ProjectMember;
 import com.riskwarning.common.po.project.ProjectMemberId;
 import com.riskwarning.common.po.report.Assessment;
-import com.riskwarning.org.repository.AssessmentRepository;
 import com.riskwarning.org.repository.ProjectMemberRepository;
 import com.riskwarning.org.repository.ProjectRepository;
 import com.riskwarning.org.service.ProjectService;
@@ -26,16 +25,13 @@ public class ProjectServiceImpl implements ProjectService {
 
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
-    private final AssessmentRepository assessmentRepository;
     private final EntityManager em;
 
     public ProjectServiceImpl(ProjectRepository projectRepository,
                               ProjectMemberRepository projectMemberRepository,
-                              AssessmentRepository assessmentRepository,
                               EntityManager em) {
         this.projectRepository = projectRepository;
         this.projectMemberRepository = projectMemberRepository;
-        this.assessmentRepository = assessmentRepository;
         this.em = em;
     }
 
@@ -135,16 +131,19 @@ public class ProjectServiceImpl implements ProjectService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 按项目 ID 返回评估记录。
+     *
+     * <p>演示阶段与 org 的 {@code /enterprise/{name}/assessment}、report 的三个接口口径一致：
+     * 完全忽略 {@code projectId}，恒定返回
+     * {@link com.riskwarning.common.hardcode.FixedAssessmentData} 写死的评估结果
+     * （assessmentId / projectId 恒为 900001）。因此这里不再校验项目是否存在、也不查评估表——
+     * 传真实项目 ID、库中不存在的 ID 得到的都是同一份结果，不会再抛
+     * “project not found / assessment not found”。</p>
+     */
     @Override
     @Transactional(readOnly = true)
     public Assessment getAssessmentByProjectId(Long projectId) {
-        projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("project not found: " + projectId));
-
-        Assessment assessment = assessmentRepository.findByProjectId(projectId);
-        if (assessment == null) {
-            throw new IllegalArgumentException("assessment not found for project: " + projectId);
-        }
-        return assessment;
+        return com.riskwarning.common.hardcode.FixedAssessmentData.assessment();
     }
 }

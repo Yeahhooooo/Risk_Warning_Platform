@@ -5,6 +5,7 @@ import co.elastic.clients.elasticsearch._types.SortOrder;
 import co.elastic.clients.elasticsearch.core.SearchResponse;
 import co.elastic.clients.elasticsearch.core.search.Hit;
 import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.riskwarning.common.config.ElasticSearchConfig;
 import com.riskwarning.common.enums.RiskDimensionEnum;
 import com.riskwarning.common.enums.risk.RiskLevelEnum;
@@ -30,7 +31,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Optional;
 
@@ -50,13 +51,18 @@ public class ReportServiceImpl implements ReportService {
      * <p>覆盖两种情形：</p>
      * <ul>
      *   <li>就是写死的演示评估记录（{@code assessmentId = 900001}）——不依赖数据库，恒成立；</li>
-     *   <li>由 org 服务模拟评估流程产生的真实记录——其 details 被原样写入了固定评估详情快照，
-     *       因此与 {@link FixedAssessmentData#assessment()} 的 details 完全一致。</li>
+     *   <li>由 org 服务模拟评估流程产生的真实记录——其 details 被写入了固定评估详情快照。</li>
      * </ul>
      *
-     * <p>此处刻意用「与固定快照全等」而不是「包含某个字段名」来判断：
-     * {@code AssessmentGeneralDetails} 本身就含 indicatorOverview 字段，
-     * 真实评估的 details 同样会包含该字段名，用字段名判断会误伤真实数据。</p>
+     * <p>第二种情形不能用「details 字符串与当前快照全等」来判断：库里的 details 是
+     * <b>写入当时</b>的快照，固定数据集一旦调整（例如风险点由 16 条改为 12 条、指标得分改为两位小数），
+     * 历史记录里的旧快照就与 classpath 上的当前快照不再相等；如果 details 列是 jsonb，
+     * 文本往返（补空格、重排键序）同样会破坏全等。两种情况下接口都会误判为「真实评估」，
+     * 转而去查 t_indicator_result / ES，最终返回空结果或旧快照。</p>
+     *
+     * <p>因此这里改为读快照内部的 {@code assessmentDetailVO.assessmentId / projectId}：
+     * 该字段是固定数据集自身的标识，不受快照版本与文本格式影响。
+     * 真实评估的 details 里这两个字段是各自的真实 id，不会命中。</p>
      */
     private boolean isSimulated(Assessment assessment) {
         if (assessment == null) {
@@ -69,11 +75,30 @@ public class ReportServiceImpl implements ReportService {
         if (FixedAssessmentData.matches(assessmentId)) {
             return true;
         }
-        if (details == null) {
+        if (details == null || details.isEmpty()) {
             return false;
         }
         String fixedDetails = FixedAssessmentData.assessment().getDetails();
-        return fixedDetails != null && fixedDetails.equals(details);
+        if (fixedDetails != null && fixedDetails.equals(details)) {
+            return true;
+        }
+        return detailsCarryFixedAssessment(details);
+    }
+
+    /** 解析 details，判断其中的 general 是否由固定演示数据集生成（见 {@link #isSimulated(Long, String)}）。 */
+    private boolean detailsCarryFixedAssessment(String details) {
+        try {
+            JSONObject root = JSON.parseObject(details);
+            JSONObject general = root == null ? null : root.getJSONObject("assessmentDetailVO");
+            if (general == null) {
+                return false;
+            }
+            return FixedAssessmentData.matches(general.getLong("assessmentId"))
+                    || FixedAssessmentData.matches(general.getLong("projectId"));
+        } catch (Exception e) {
+            log.warn("details 无法解析，按真实评估处理");
+            return false;
+        }
     }
 
     /**
@@ -143,7 +168,9 @@ public class ReportServiceImpl implements ReportService {
                 .assessmentId(assessment.getId()).assessmentTime(assessment.getAssessmentDate())
                 .riskDimensionEnum(dimension).totalScore(AssessmentScores.percentage(rows)).maxScore(100.0)
                 .totalCount(rows.size()).riskTriggeredCount(0).safeCount(0)
-                .scoreDistributions(new ArrayList<>()).dimensionDistributions(new HashMap<>())
+                // 枚举键必须用 EnumMap：HashMap 的迭代顺序取决于枚举常量的 identity hash，
+                // 每次 JVM 启动都可能不同，会让同一份结果的 JSON 键序漂移（快照一致性校验随机失败）。
+                .scoreDistributions(new ArrayList<>()).dimensionDistributions(new EnumMap<>(RiskDimensionEnum.class))
                 .indicatorScores(new ArrayList<>()).build();
         List<List<IndicatorResult>> buckets = new ArrayList<>();
         for (int i = 0; i < 4; i++) buckets.add(new ArrayList<>());
@@ -155,6 +182,7 @@ public class ReportServiceImpl implements ReportService {
             Double ratio = AssessmentScores.ratio(row);
             result.getIndicatorScores().add(com.riskwarning.report.entity.vo.indicator.IndicatorScoreVO.builder()
                     .indicatorId(row.getIndicatorEsId()).indicatorName(row.getIndicatorName()).dimension(ReportRiskDimensions.normalize(row.getDimension()))
+                    .relatedIndicator(row.getRelatedIndicator())
                     .relatedBehaviors(behaviorDescriptions(row))
                     .score(AssessmentScores.percentage(row)).maxScore(100.0).riskTriggered(triggered)
                     .riskLevel(ratio == null ? null : RiskLevelEnum.getByScoreRatio(ratio)).build());
@@ -194,8 +222,12 @@ public class ReportServiceImpl implements ReportService {
     public List<RiskVO> assembleRisk(Long assessmentId) {
         List<Risk> risks = fetchRisksFromES(assessmentId);
         // 命中写死/模拟评估时使用固定指标；否则按 id 查库。
-        Assessment stored = findStored(assessmentId);
-        boolean simulated = isSimulated(assessmentId, stored != null ? stored.getDetails() : null);
+        // 写死的演示评估（id 900001）不必回查数据库，先判掉可省掉一次无意义的查询。
+        boolean simulated = FixedAssessmentData.matches(assessmentId);
+        if (!simulated) {
+            Assessment stored = findStored(assessmentId);
+            simulated = isSimulated(assessmentId, stored != null ? stored.getDetails() : null);
+        }
         List<IndicatorResult> indicatorResults = simulated
                 ? FixedAssessmentData.indicatorResults()
                 : findIndicatorResults(assessmentId);
@@ -285,7 +317,8 @@ public class ReportServiceImpl implements ReportService {
         );
         assessmentDetailVO.setRiskSummary(new RiskSummary());
         assessmentDetailVO.setIndicatorOverview(new IndicatorOverview());
-        assessmentDetailVO.setDimensionRiskDistribution(new HashMap<>());
+        // 同上：枚举键用 EnumMap 保证键序确定（按枚举声明顺序）
+        assessmentDetailVO.setDimensionRiskDistribution(new EnumMap<>(RiskDimensionEnum.class));
         for(RiskDimensionEnum riskDimensionEnum : RiskDimensionEnum.values()) {
             assessmentDetailVO.getDimensionRiskDistribution().put(riskDimensionEnum, new DimensionRiskDistribution());
         }
@@ -338,7 +371,11 @@ public class ReportServiceImpl implements ReportService {
 
 
     public List<Risk> fetchRisksFromES(Long assessmentId) {
-        // 写死的演示评估与模拟评估直接从固定数据集取风险，不再访问 ES
+        // 写死的演示评估直接从固定数据集取风险，不再访问 ES
+        if (FixedAssessmentData.matches(assessmentId)) {
+            return FixedAssessmentData.risks();
+        }
+        // 模拟评估流程落库的真实记录：details 内带固定数据集标记，同样返回固定风险
         Assessment stored = findStored(assessmentId);
         if (isSimulated(assessmentId, stored != null ? stored.getDetails() : null)) {
             return FixedAssessmentData.risks();

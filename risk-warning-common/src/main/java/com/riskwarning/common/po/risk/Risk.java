@@ -51,5 +51,13 @@ public class Risk {
 
     private List<RelatedIndicator> relatedIndicators;
 
+    /**
+     * 该风险点对应的知识库指标完整路径：维度 &gt; 二级指标 &gt; 三级指标 &gt; 三级指标项。
+     *
+     * <p>仅写死的演示数据集（{@code FixedAssessmentData}）会填充；
+     * 真实评估落库/入 ES 的风险点没有该元数据，保持 {@code null}。</p>
+     */
+    private String relatedIndicator;
+
     private LocalDateTime createAt;
 }

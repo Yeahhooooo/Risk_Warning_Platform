@@ -92,10 +92,15 @@ public class ProjectController {
     }
 
     /**
-     * 根据项目ID查询评估记录
+     * 根据项目ID查询评估记录。
      *
-     * @param projectId 项目ID
-     * @return 评估记录
+     * <p>演示阶段：**完全忽略 projectId**，恒定返回写死的评估结果
+     * （{@link com.riskwarning.common.hardcode.FixedAssessmentData#assessment()}，
+     * assessmentId / projectId 恒为 900001），不校验项目是否存在、不查数据库。
+     * 与 {@code /enterprise/{name}/assessment} 及 report 的三个接口口径一致。</p>
+     *
+     * @param projectId 项目 ID，当前实现忽略该值（保留路径变量以兼容前端调用地址）
+     * @return 写死的评估记录
      */
     @GetMapping("/{projectId}/assessment")
     public Result<Assessment> getAssessmentByProjectId(@PathVariable Long projectId) {
