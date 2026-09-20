@@ -16,6 +16,7 @@ import com.riskwarning.org.entity.dto.UploadFileDto;
 import com.riskwarning.org.repository.AssessmentRepository;
 import com.riskwarning.org.repository.FileRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
@@ -36,10 +37,20 @@ public class ExecuteQueueTask implements DurableWorkHandler, SmartLifecycle {
     private volatile boolean running;
     private ScheduledExecutorService executor;
 
+    /**
+     * 演示模式：UPLOAD_INBOX 的执行工作项交给 {@link SimulatedAssessmentCompletionTask}，
+     * 本类只保留 Redis→数据库 的 handoff 落库职责，不再发起真实计算链路。
+     * 该值为 true 时本类的 {@link #execute(String)} 不会被调用（工作项 kind 已被模拟任务接管）。
+     */
+    private final boolean simulated;
+
     public ExecuteQueueTask(UploadTaskQueue queue, DurableWorkStore store, RedisUtil redis,
-            FileRepository files, AssessmentRepository assessments, KafkaUtils kafka) {
+            FileRepository files, AssessmentRepository assessments, KafkaUtils kafka,
+            @Value("${org.assessment.simulate.enabled:true}") boolean simulated) {
         this.queue = queue; this.store = store; this.redis = redis;
         this.files = files; this.assessments = assessments; this.kafka = kafka;
+        this.simulated = simulated;
+        log.info("[AssessmentFlow] stage=UPLOAD_EXECUTOR status=CONFIGURED simulated={}", simulated);
     }
 
     public void handoffOne() {
@@ -57,13 +68,31 @@ public class ExecuteQueueTask implements DurableWorkHandler, SmartLifecycle {
             if (metadata != null) for (Object value : metadata.values()) snapshot.add((UploadFileDto) value);
             task.setFiles(snapshot);
         }
-        store.enqueue(kind(), task.getTaskId(), JSON.toJSONString(task));
+        store.enqueue(workKind(), task.getTaskId(), JSON.toJSONString(task));
         queue.acknowledge(original);
-        log.info("[AssessmentFlow] stage=UPLOAD_HANDOFF status=PERSISTED projectId={} taskId={}", task.getProjectId(), task.getTaskId());
+        log.info("[AssessmentFlow] stage=UPLOAD_HANDOFF status=PERSISTED projectId={} taskId={} kind={}",
+                task.getProjectId(), task.getTaskId(), workKind());
     }
 
-    public String kind() { return "UPLOAD_INBOX"; }
+    /** 工作项写入数据库时使用的 kind：始终是 UPLOAD_INBOX，由当前启用的处理器认领。 */
+    private String workKind() {
+        return "UPLOAD_INBOX";
+    }
 
+    /**
+     * 本类作为 DurableWorkHandler 时认领的 kind。
+     * 演示模式下返回占位值，避免与 {@link SimulatedAssessmentCompletionTask} 争抢同一批工作项。
+     */
+    public String kind() {
+        return simulated ? "UPLOAD_INBOX_DISABLED" : workKind();
+    }
+
+    /**
+     * 真实评估链路的执行逻辑：落库上传文件与待评估记录，并发出行为计算任务消息。
+     *
+     * <p>演示模式下本类认领的 kind 已被改为占位值（见 {@link #kind()}），
+     * 因此这个方法不会被真实工作项触发；把开关置 false 即可恢复为真实链路处理器。</p>
+     */
     public void execute(String payload) {
         UploadConfirmDto task = JSON.parseObject(payload, UploadConfirmDto.class);
         if (task.getFiles() == null || task.getFiles().isEmpty()) {

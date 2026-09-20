@@ -16,7 +16,14 @@ assessment:
 
 org:
   upload:
-    queue-key: ${UPLOAD_CONFIRM_QUEUE_KEY:file:confirmed:queue:server0}
+    queue-key: ${UPLOAD_CONFIRM_QUEUE_KEY:file:confirmed:queue:dcw}
+  # 演示用：触发评估后不执行真实计算链路（processing/report），
+  # 延迟若干秒后直接把评估与项目标记为完成，并通过 WebSocket 通知前端。
+  # enabled=false 时回退到原有的真实评估流程。
+  assessment:
+    simulate:
+      enabled: ${ASSESSMENT_SIMULATE_ENABLED:true}
+      delay-seconds: ${ASSESSMENT_SIMULATE_DELAY_SECONDS:15}
 ## JWT配置
 #jwt:
 #  secret: risk-warning-platform-jwt-secret-key-2023

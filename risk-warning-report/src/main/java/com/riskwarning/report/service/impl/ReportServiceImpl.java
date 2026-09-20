@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @Slf4j
@@ -43,24 +44,97 @@ public class ReportServiceImpl implements ReportService {
     @Autowired
     private IndicatorResultRepository indicatorResultRepository;
 
+    /**
+     * 判断某个 assessmentId（可带已加载的 details）是否应返回写死的模拟结论。
+     *
+     * <p>覆盖两种情形：</p>
+     * <ul>
+     *   <li>就是写死的演示评估记录（{@code assessmentId = 900001}）——不依赖数据库，恒成立；</li>
+     *   <li>由 org 服务模拟评估流程产生的真实记录——其 details 被原样写入了固定评估详情快照，
+     *       因此与 {@link FixedAssessmentData#assessment()} 的 details 完全一致。</li>
+     * </ul>
+     *
+     * <p>此处刻意用「与固定快照全等」而不是「包含某个字段名」来判断：
+     * {@code AssessmentGeneralDetails} 本身就含 indicatorOverview 字段，
+     * 真实评估的 details 同样会包含该字段名，用字段名判断会误伤真实数据。</p>
+     */
+    private boolean isSimulated(Assessment assessment) {
+        if (assessment == null) {
+            return false;
+        }
+        return isSimulated(assessment.getId(), assessment.getDetails());
+    }
+
+    private boolean isSimulated(Long assessmentId, String details) {
+        if (FixedAssessmentData.matches(assessmentId)) {
+            return true;
+        }
+        if (details == null) {
+            return false;
+        }
+        String fixedDetails = FixedAssessmentData.assessment().getDetails();
+        return fixedDetails != null && fixedDetails.equals(details);
+    }
+
+    /**
+     * 当数据库中的评估记录带固定详情、但内存对象尚未加载 details 时，按 id 回查补齐，
+     * 保证 general / indicatorResult / risk 三个接口对同一次模拟评估判断一致。
+     */
+    private Assessment withDetails(Assessment assessment) {
+        if (assessment == null || assessment.getDetails() != null) {
+            return assessment;
+        }
+        Assessment stored = findStored(assessment.getId());
+        return stored != null ? stored : assessment;
+    }
+
+    /**
+     * 按 id 回查评估记录。查询不可用或未命中时返回 null，调用方按「非模拟评估」处理，
+     * 从而在未接入数据库的单元测试场景下也能保持既有行为。
+     */
+    private Assessment findStored(Long assessmentId) {
+        if (assessmentId == null || assessmentRepository == null) {
+            return null;
+        }
+        try {
+            return assessmentRepository.findById(assessmentId).orElse(null);
+        } catch (Exception e) {
+            log.warn("回查评估记录失败，按非模拟评估处理，assessmentId={}", assessmentId, e);
+            return null;
+        }
+    }
+
     @Autowired
     private ElasticsearchClient esClient;
 
     @Override
     public IndicatorDistributionVO assembleIndicatorResult(Assessment assessment) {
         // Old cached reports contain sums, so recompute scores from the original indicator records.
-        return buildDistribution(assessment, indicatorResults(assessment.getId()), null);
+        return buildDistribution(assessment, indicatorResults(assessment), null);
     }
 
     /**
-     * 读取某次评估的指标结果：命中写死的演示评估时返回写死数据，否则走原有数据库查询。
+     * 读取某次评估的指标结果：命中写死/模拟的演示评估时返回固定数据，否则走原有数据库查询。
      * 这样 general / indicatorResult / risk 三个接口以及总分口径始终取自同一份数据。
      */
-    private List<IndicatorResult> indicatorResults(Long assessmentId) {
-        if (FixedAssessmentData.matches(assessmentId)) {
+    private List<IndicatorResult> indicatorResults(Assessment assessment) {
+        if (assessment == null) {
+            return new ArrayList<>();
+        }
+        Assessment resolved = withDetails(assessment);
+        if (isSimulated(resolved)) {
             return FixedAssessmentData.indicatorResults();
         }
-        return indicatorResultRepository.findByAssessmentId(assessmentId);
+        return findIndicatorResults(assessment.getId());
+    }
+
+    /** 按评估 id 查询指标结果；仓库不可用时返回空列表，避免在未接入数据库的场景下抛空指针。 */
+    private List<IndicatorResult> findIndicatorResults(Long assessmentId) {
+        if (assessmentId == null || indicatorResultRepository == null) {
+            return new ArrayList<>();
+        }
+        List<IndicatorResult> rows = indicatorResultRepository.findByAssessmentId(assessmentId);
+        return rows != null ? rows : new ArrayList<>();
     }
 
     private IndicatorDistributionVO buildDistribution(Assessment assessment, List<IndicatorResult> rows,
@@ -119,7 +193,12 @@ public class ReportServiceImpl implements ReportService {
     @Override
     public List<RiskVO> assembleRisk(Long assessmentId) {
         List<Risk> risks = fetchRisksFromES(assessmentId);
-        List<IndicatorResult> indicatorResults = indicatorResults(assessmentId);
+        // 命中写死/模拟评估时使用固定指标；否则按 id 查库。
+        Assessment stored = findStored(assessmentId);
+        boolean simulated = isSimulated(assessmentId, stored != null ? stored.getDetails() : null);
+        List<IndicatorResult> indicatorResults = simulated
+                ? FixedAssessmentData.indicatorResults()
+                : findIndicatorResults(assessmentId);
         List<RiskVO> riskVOList = new ArrayList<>();
         for(Risk risk : risks) {
             RiskVO riskVO = new RiskVO();
@@ -162,9 +241,9 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     public AssessmentDetailVO assembleGeneral(Assessment assessment) {
-        // 写死的演示评估始终按固定指标与风险实时组装，不解析 details 快照，
+        // 写死的演示评估与模拟评估始终按固定指标与风险实时组装，不解析 details 快照，
         // 保证 general 与 indicatorResult / risk 三个接口口径完全一致。
-        if (FixedAssessmentData.matches(assessment.getId())) {
+        if (isSimulated(withDetails(assessment))) {
             return assembleGeneralWithRisks(assessment, FixedAssessmentData.risks());
         }
         // 检查assessment的detail属性是否已经存在general信息，若存在则直接反序列化返回，避免重复计算
@@ -173,7 +252,7 @@ public class ReportServiceImpl implements ReportService {
                 AssessmentGeneralDetails assessmentGeneralDetails = JSON.parseObject(assessment.getDetails(), AssessmentGeneralDetails.class);
                 AssessmentDetailVO general = assessmentGeneralDetails.getAssessmentDetailVO();
                 general.getOverallResult().setOverallScore(AssessmentScores.percentage(
-                        indicatorResults(assessment.getId())));
+                        indicatorResults(assessment)));
                 return general;
             } catch (Exception e) {
                 log.error("评估报告已存在详细信息但反序列化失败", e);
@@ -193,7 +272,7 @@ public class ReportServiceImpl implements ReportService {
      * 根据 assessment 与风险列表构建汇总 VO（不查 ES），并正确设置 totalRisks
      */
     private AssessmentDetailVO assembleGeneralWithRisks(Assessment assessment, List<Risk> risks) {
-        List<IndicatorResult> indicatorRows = indicatorResults(assessment.getId());
+        List<IndicatorResult> indicatorRows = indicatorResults(assessment);
         AssessmentDetailVO assessmentDetailVO = new AssessmentDetailVO();
         assessmentDetailVO.setProjectId(assessment.getProjectId());
         assessmentDetailVO.setAssessmentId(assessment.getId());
@@ -259,8 +338,9 @@ public class ReportServiceImpl implements ReportService {
 
 
     public List<Risk> fetchRisksFromES(Long assessmentId) {
-        // 写死的演示评估直接从固定数据集取风险，不再访问 ES
-        if (FixedAssessmentData.matches(assessmentId)) {
+        // 写死的演示评估与模拟评估直接从固定数据集取风险，不再访问 ES
+        Assessment stored = findStored(assessmentId);
+        if (isSimulated(assessmentId, stored != null ? stored.getDetails() : null)) {
             return FixedAssessmentData.risks();
         }
         try {
