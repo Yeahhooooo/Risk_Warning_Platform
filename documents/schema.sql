@@ -191,7 +191,7 @@ COMMENT ON COLUMN public.t_indicator_result.indicator_name IS '指标名称（�
 COMMENT ON COLUMN public.t_indicator_result.calculated_score IS '计算得到的分数';
 COMMENT ON COLUMN public.t_indicator_result.used_calculation_rule_type IS '使用的计算规则类型：binary, range';
 COMMENT ON COLUMN public.t_indicator_result.calculation_details IS '计算详情，包含具体规则和中间过程';
-COMMENT ON COLUMN public.t_indicator_result.matched_behaviors IS '匹配到的行为数据ES ID列表';
+COMMENT ON COLUMN public.t_indicator_result.matched_behaviors_ids IS '匹配到的行为数据ES ID列表';
 COMMENT ON COLUMN public.t_indicator_result.risk_triggered IS '是否触发了风险规则';
 
 -- 8. 事件表 (t_event)

@@ -10,7 +10,7 @@ import java.util.Optional;
 @Repository
 public interface AssessmentRepository extends JpaRepository<Assessment, Long> {
 
-    Assessment findByProjectId(long l);
+    Optional<Assessment> findFirstByProjectIdOrderByIdDesc(Long projectId);
 
     /**
      * 在指定项目ID集合中，取评估ID最大的一条记录作为最新评估

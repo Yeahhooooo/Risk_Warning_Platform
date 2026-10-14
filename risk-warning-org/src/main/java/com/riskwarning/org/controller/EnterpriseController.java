@@ -1,4 +1,5 @@
 package com.riskwarning.org.controller;
+import com.riskwarning.common.dto.enterprise.EnterpriseUpdateRequest;
 
 import com.riskwarning.common.annotation.AuthRequired;
 import com.riskwarning.common.dto.enterprise.EnterpriseUserResponse;
@@ -102,4 +103,23 @@ public class EnterpriseController {
     }
 
 
+    @AuthRequired
+    @GetMapping("/{enterpriseId}")
+    public Result<Enterprise> enterprise(@PathVariable Long enterpriseId) {
+        return Result.success(enterpriseService.getEnterprise(enterpriseId));
+    }
+
+    @AuthRequired
+    @RequestMapping(value = "/{enterpriseId}", method = {RequestMethod.PUT, RequestMethod.PATCH})
+    public Result<Enterprise> updateEnterprise(@PathVariable Long enterpriseId,
+                                               @RequestBody EnterpriseUpdateRequest request) {
+        return Result.success(enterpriseService.updateEnterprise(enterpriseId, request));
+    }
+
+    @AuthRequired
+    @DeleteMapping("/{enterpriseId}")
+    public Result<Void> deleteEnterprise(@PathVariable Long enterpriseId) {
+        enterpriseService.deleteEnterprise(enterpriseId);
+        return Result.success();
+    }
 }

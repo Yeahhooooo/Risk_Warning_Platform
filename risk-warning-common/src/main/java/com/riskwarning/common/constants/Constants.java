@@ -22,11 +22,6 @@ public class Constants {
 
     public static final Integer FILE_AMOUNT_LIMIT = 10;
 
-    /**
-     * 演示模式下，从“触发评估”到“标记完成”的默认延迟秒数。
-     * 实际取值可由 org 服务的 {@code org.assessment.simulate.delay-seconds} 覆盖。
-     */
-    public static final Integer SIMULATED_ASSESSMENT_DELAY_SECONDS = 15;
 
     public static final Integer UPLOAD_CONFIRM_RETRY_LIMIT = 3;
 

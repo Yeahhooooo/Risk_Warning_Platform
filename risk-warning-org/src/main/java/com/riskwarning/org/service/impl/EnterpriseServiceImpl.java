@@ -1,4 +1,9 @@
 package com.riskwarning.org.service.impl;
+import com.riskwarning.common.dto.enterprise.EnterpriseUpdateRequest;
+import com.riskwarning.common.exception.BusinessException;
+import com.riskwarning.org.service.ProjectService;
+import javax.persistence.LockModeType;
+import java.time.LocalDate;
 
 import com.riskwarning.common.context.UserContext;
 import com.riskwarning.common.dto.UserResponse;
@@ -8,6 +13,8 @@ import com.riskwarning.common.po.enterprise.Enterprise;
 import com.riskwarning.common.po.enterprise.EnterpriseUser;
 import com.riskwarning.common.po.enterprise.EnterpriseUserId;
 import com.riskwarning.common.po.report.Assessment;
+import com.riskwarning.common.po.project.Project;
+import com.riskwarning.common.utils.AssessmentDataGuard;
 import com.riskwarning.common.po.user.User;
 import com.riskwarning.org.repository.AssessmentRepository;
 import com.riskwarning.org.repository.EnterpriseRepository;
@@ -24,6 +31,9 @@ import java.util.stream.Collectors;
 
 @Service
 public class EnterpriseServiceImpl implements EnterpriseService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private ProjectService projectService;
+
 
     private final EnterpriseRepository enterpriseRepository;
     private final EnterpriseUserRepository enterpriseUserRepository;
@@ -152,20 +162,98 @@ public class EnterpriseServiceImpl implements EnterpriseService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 按企业名称返回最新评估结果。
-     *
-     * <p>演示环境按需求直接返回写死的评估结果（数据来源：《JUDGE-A4DF00BA94F3 合规判定报告》与
-     * 《课题三任务三对山东XX国际贸易公司的判定结果的风险指标追溯对应文档》），不再查询数据库，
-     * 保证任意企业名称都能拿到同一套完整的评估结论。写死数据的定义见
-     * {@link com.riskwarning.common.hardcode.FixedAssessmentData}。</p>
-     *
-     * <p>原先“企业 -> 项目 -> 评估记录取最大ID”的查询逻辑已由写死数据替代。</p>
-     */
+    /** Return the latest assessment across this enterprise's projects. */
     @Override
     @Transactional(readOnly = true)
     public Assessment getLatestAssessmentByEnterpriseName(String name) {
-        return com.riskwarning.common.hardcode.FixedAssessmentData.assessment();
+        Enterprise enterprise = enterpriseRepository.findByName(name)
+                .orElseThrow(() -> new IllegalArgumentException("enterprise not found: " + name));
+        List<Long> projectIds = projectRepository.findByEnterpriseId(enterprise.getId()).stream()
+                .map(Project::getId).collect(Collectors.toList());
+        if (projectIds.isEmpty()) return null;
+        return assessmentRepository.findFirstByProjectIdInOrderByIdDesc(projectIds)
+                .map(AssessmentDataGuard::requireReal).orElse(null);
     }
 
+
+    @Override
+    @Transactional(readOnly = true)
+    public Enterprise getEnterprise(Long id) {
+        Enterprise enterprise = enterprise(id, false);
+        if (enterpriseMember(id) == null) throw new BusinessException("无权查看该企业");
+        return enterprise;
+    }
+
+    @Override
+    @Transactional
+    public Enterprise updateEnterprise(Long id, EnterpriseUpdateRequest request) {
+        Enterprise enterprise = enterprise(id, true);
+        requireEnterpriseAdmin(id);
+        if (request == null) throw new BusinessException("修改内容不能为空");
+        if (request.getName() != null) enterprise.setName(nonBlank(request.getName(), "企业名称"));
+        if (request.getCreditCode() != null) {
+            String code = nonBlank(request.getCreditCode(), "统一社会信用代码");
+            enterpriseRepository.findByCreditCode(code).filter(other -> !id.equals(other.getId())).ifPresent(other -> {
+                throw new BusinessException("统一社会信用代码已被其他企业使用");
+            });
+            enterprise.setCreditCode(code);
+        }
+        if (request.getRegisteredCapital() != null) {
+            if (request.getRegisteredCapital().signum() < 0) throw new BusinessException("注册资本不能为负数");
+            enterprise.setRegisteredCapital(request.getRegisteredCapital());
+        }
+        if (request.getEstablishmentDate() != null) {
+            if (request.getEstablishmentDate().isAfter(LocalDate.now())) throw new BusinessException("成立日期不能晚于今天");
+            enterprise.setEstablishmentDate(request.getEstablishmentDate());
+        }
+        if (request.getType() != null) enterprise.setType(request.getType());
+        if (request.getIndustry() != null) enterprise.setIndustry(request.getIndustry());
+        if (request.getBusinessScope() != null) enterprise.setBusinessScope(request.getBusinessScope());
+        if (request.getLegalRepresentative() != null) enterprise.setLegalRepresentative(request.getLegalRepresentative());
+        if (request.getRegisteredAddress() != null) enterprise.setRegisteredAddress(request.getRegisteredAddress());
+        if (request.getBusinessStatus() != null) enterprise.setBusinessStatus(request.getBusinessStatus());
+        enterprise.setUpdatedAt(LocalDateTime.now());
+        return enterprise;
+    }
+
+    private Enterprise enterprise(Long id, boolean lock) {
+        positive(id);
+        Enterprise entity = lock ? em.find(Enterprise.class, id, LockModeType.PESSIMISTIC_WRITE) : em.find(Enterprise.class, id);
+        if (entity == null) throw new BusinessException("企业不存在");
+        return entity;
+    }
+
+    private void requireEnterpriseAdmin(Long id) {
+        EnterpriseUser member = enterpriseMember(id);
+        if (member == null || member.getRole() != EnterpriseRole.admin) throw new BusinessException("仅企业管理员可修改或删除企业");
+    }
+
+    @Override
+    @Transactional
+    public void deleteEnterprise(Long id) {
+        Enterprise enterprise = enterprise(id, true);
+        requireEnterpriseAdmin(id);
+        projectService.deleteProjectsByEnterprise(id);
+        em.createQuery("delete from EnterpriseUser m where m.id.enterpriseId = :id").setParameter("id", id).executeUpdate();
+        em.remove(enterprise);
+    }
+
+    private EnterpriseUser enterpriseMember(Long id) {
+        return em.find(EnterpriseUser.class, new EnterpriseUserId(id, userId()));
+    }
+
+    private Long userId() {
+        User user = UserContext.getUser();
+        if (user == null || user.getId() == null) throw new BusinessException("请先登录");
+        return user.getId();
+    }
+
+    private void positive(Long id) {
+        if (id == null || id <= 0) throw new BusinessException("ID 必须为正整数");
+    }
+
+    private String nonBlank(String value, String field) {
+        if (value.trim().isEmpty()) throw new BusinessException(field + "不能为空");
+        return value.trim();
+    }
 }

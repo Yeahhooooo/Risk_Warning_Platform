@@ -53,7 +53,7 @@ public class RiskVO {
      * 该风险点对应的知识库指标完整路径：维度 &gt; 二级指标 &gt; 三级指标 &gt; 三级指标项。
      *
      * <p>例如「企业关联方风险 &gt; 合作伙伴（合资方、战略合作方） &gt; 合作方违规 &gt; 企业合作伙伴是否存在违法违规行为」。
-     * 写死的演示数据集恒有值；真实评估的风险点没有该元数据，返回 {@code null}。</p>
+     * 未提供知识库路径时返回 {@code null}。</p>
      */
     private String relatedIndicator;
 

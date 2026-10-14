@@ -3,6 +3,7 @@ package com.riskwarning.org.service;
 
 import com.riskwarning.common.dto.project.ProjectMemberResponse;
 import com.riskwarning.common.po.project.Project;
+import com.riskwarning.common.dto.project.ProjectUpdateRequest;
 import com.riskwarning.common.po.report.Assessment;
 
 import java.util.List;
@@ -55,4 +56,13 @@ public interface ProjectService {
      * @return 评估记录
      */
     Assessment getAssessmentByProjectId(Long projectId);
+
+    Project getProject(Long id);
+
+    Project updateProject(Long id, ProjectUpdateRequest request);
+
+    void deleteProject(Long id);
+
+    /** Delete all child projects atomically after enterprise-admin authorization. */
+    void deleteProjectsByEnterprise(Long enterpriseId);
 }

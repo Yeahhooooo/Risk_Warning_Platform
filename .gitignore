@@ -158,3 +158,6 @@ env/
 # IDE
 .idea/
 .vscode/
+
+
+src/main/resources/application.yml

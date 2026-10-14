@@ -14,7 +14,7 @@ public class IndicatorScoreVO {
     /**
      * 该指标在知识库中的完整路径：维度 &gt; 二级指标 &gt; 三级指标 &gt; 三级指标项。
      *
-     * <p>写死的演示数据集恒有值；真实评估的指标没有该元数据，返回 {@code null}。</p>
+     * <p>未提供知识库路径时返回 {@code null}。</p>
      */
     private String relatedIndicator;
     /** Descriptions only; no behavior identifiers, metadata or regulations are exposed here. */

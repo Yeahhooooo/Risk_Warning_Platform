@@ -2,6 +2,7 @@ package com.riskwarning.org.service;
 
 import com.riskwarning.common.dto.enterprise.EnterpriseUserResponse;
 import com.riskwarning.common.po.enterprise.Enterprise;
+import com.riskwarning.common.dto.enterprise.EnterpriseUpdateRequest;
 import com.riskwarning.common.po.report.Assessment;
 
 import java.util.List;
@@ -54,4 +55,10 @@ public interface EnterpriseService {
      * @return 最近一次评估结果，若企业不存在或没有评估记录则返回 null
      */
     Assessment getLatestAssessmentByEnterpriseName(String name);
+
+    Enterprise getEnterprise(Long id);
+
+    Enterprise updateEnterprise(Long id, EnterpriseUpdateRequest request);
+
+    void deleteEnterprise(Long id);
 }

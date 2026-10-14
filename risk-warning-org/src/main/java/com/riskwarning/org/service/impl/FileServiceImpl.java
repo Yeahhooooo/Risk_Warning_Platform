@@ -26,6 +26,8 @@ import java.util.*;
 @Service
 @Slf4j
 public class FileServiceImpl implements FileService {
+    @javax.persistence.PersistenceContext
+    private javax.persistence.EntityManager em;
 
     @Autowired
     private RedisUtil redisUtil;
@@ -37,7 +39,9 @@ public class FileServiceImpl implements FileService {
     private UploadTaskQueue uploadTaskQueue;
 
     @Override
+    @Transactional
     public String initUpload(Long projectId, String fileHash, Long fileSize, Integer totalChunks, String fileType) {
+        requireExistingProject(projectId);
         String redisFileKey = String.format(RedisKey.REDIS_KEY_FILE, projectId);
         // 检查该项目是否已经上传过文件进行解析
         if(redisUtil.sHasKey(redisFileKey, fileHash)){
@@ -121,7 +125,9 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
+    @Transactional
     public void confirmUpload(Long projectId) {
+        requireExistingProject(projectId);
         // 检查上传任务是否存在
         Map<Object, Object> uploadFileMap = redisUtil.hmget(String.format(RedisKey.REDIS_KEY_FILE_UPLOAD_INFO, projectId));
         if(uploadFileMap == null || uploadFileMap.isEmpty()){
@@ -145,5 +151,11 @@ public class FileServiceImpl implements FileService {
                                 .collect(java.util.stream.Collectors.toList()))
                         .build()
         );
+    }
+    private void requireExistingProject(Long projectId) {
+        if (projectId == null || em.find(com.riskwarning.common.po.project.Project.class, projectId,
+                javax.persistence.LockModeType.PESSIMISTIC_READ) == null) {
+            throw new BusinessException("项目不存在或已被删除");
+        }
     }
 }

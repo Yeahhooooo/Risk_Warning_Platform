@@ -2,6 +2,7 @@
 package com.riskwarning.org.controller;
 
 import com.riskwarning.common.annotation.AuthRequired;
+import com.riskwarning.common.dto.project.ProjectUpdateRequest;
 import com.riskwarning.common.dto.UserResponse;
 import com.riskwarning.common.enums.RegionEnum;
 import com.riskwarning.common.enums.project.IndustryEnum;
@@ -91,19 +92,29 @@ public class ProjectController {
         return Result.success(projectService.getProjectMembers(projectId));
     }
 
-    /**
-     * 根据项目ID查询评估记录。
-     *
-     * <p>演示阶段：**完全忽略 projectId**，恒定返回写死的评估结果
-     * （{@link com.riskwarning.common.hardcode.FixedAssessmentData#assessment()}，
-     * assessmentId / projectId 恒为 900001），不校验项目是否存在、不查数据库。
-     * 与 {@code /enterprise/{name}/assessment} 及 report 的三个接口口径一致。</p>
-     *
-     * @param projectId 项目 ID，当前实现忽略该值（保留路径变量以兼容前端调用地址）
-     * @return 写死的评估记录
-     */
+    /** 根据项目ID查询最新评估记录。 */
     @GetMapping("/{projectId}/assessment")
     public Result<Assessment> getAssessmentByProjectId(@PathVariable Long projectId) {
         return Result.success(projectService.getAssessmentByProjectId(projectId));
+    }
+
+
+    @AuthRequired
+    @GetMapping("/{projectId}")
+    public Result<Project> project(@PathVariable Long projectId) {
+        return Result.success(projectService.getProject(projectId));
+    }
+
+    @AuthRequired
+    @RequestMapping(value = "/{projectId}", method = {RequestMethod.PUT, RequestMethod.PATCH})
+    public Result<Project> updateProject(@PathVariable Long projectId, @RequestBody ProjectUpdateRequest request) {
+        return Result.success(projectService.updateProject(projectId, request));
+    }
+
+    @AuthRequired
+    @DeleteMapping("/{projectId}")
+    public Result<Void> deleteProject(@PathVariable Long projectId) {
+        projectService.deleteProject(projectId);
+        return Result.success();
     }
 }
