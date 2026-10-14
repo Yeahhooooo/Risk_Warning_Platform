@@ -1,240 +1,190 @@
-# 风险合规预警系统
+# 企业合规风险预警平台
 
-## 系统概述
+Risk Warning Platform 是一个面向企业合规场景的风险评估后端项目。平台以企业和项目为管理单元，对上传的业务材料进行文本提取、行为分类和语义匹配，结合指标与法规知识库计算合规得分，汇总风险及其关联证据，并通过异步通知反馈评估结果。
 
-风险合规预警系统是一个基于Spring Cloud微服务架构的企业合规风险评估平台，支持智能化的行为分析、指标计算和风险预警。
+项目采用 Spring Cloud 微服务架构，结合 Java 业务服务与 Python 模型服务，串联材料上传、行为分析、指标计算、报告查询和通知推送。本仓库包含后端、模型服务代码及部署参考文件，前端页面在独立项目中维护。
+
+## 核心功能
+
+| 功能 | 说明 |
+| --- | --- |
+| 用户与组织管理 | 邮箱密码注册、登录及 JWT 认证；企业、项目档案和成员管理；基于企业及项目角色的详情、修改、删除权限控制 |
+| 材料上传 | 按项目初始化上传、接收文件分片、确认上传；后台合并原始文件并创建待评估记录 |
+| 行为分析 | 提取 PDF、Word 等材料的文本，进行行为分类和向量化，将行为及向量写入 Elasticsearch |
+| 指标与法规匹配 | 基于行为向量检索相关指标、法规，结合计算规则生成指标结果和风险记录 |
+| 评估报告 | 提供总体结果、维度分布、指标得分、风险明细及关联行为描述，支持追溯评分依据 |
+| 异步通知 | 通过 Kafka 传递处理任务与完成事件，通过 WebSocket 推送评估完成消息 |
+| 任务恢复 | 使用 PostgreSQL 持久任务、Kafka inbox/outbox 和 Redis 原子交接，支持失败重试及重启后继续处理 |
+
+企业角色包括 `admin / member`，项目角色包括 `project_admin / editor / viewer`。修改或删除项目时会检查活动评估及待处理任务，避免打断正在执行的计算。
 
 ## 技术架构
 
-### 技术栈
-- **前端**: Vue.js
-- **后端**: Spring Cloud 2021.0.8 + Spring Boot 2.7.18
-- **注册中心**: Nacos
-- **API网关**: Spring Cloud Gateway
-- **数据库**: PostgreSQL (关系型)
-- **搜索引擎**: Elasticsearch 7.17.15
-- **向量数据库**: Milvus
-- **缓存**: Redis
-- **消息队列**: Kafka
-- **容器化**: Docker
-- **AI算法**: BERT (文本向量化)
+| 层次 | 技术及用途 |
+| --- | --- |
+| 服务框架 | Spring Boot 2.6.13、Spring Cloud 2021.0.5、Spring Cloud Alibaba 2021.0.5.0 |
+| 服务入口 | Spring Cloud Gateway，统一路由及 JWT 校验 |
+| 注册与配置 | Nacos，管理业务服务发现及共享配置 |
+| 关系数据 | PostgreSQL、Spring Data JPA，保存用户、企业、项目、评估及指标结果 |
+| 搜索与匹配 | Elasticsearch，保存行为、指标、法规和风险数据，并执行向量检索；Java 客户端版本为 8.11.4 |
+| 向量服务 | BERT、PyTorch、Transformers、Flask；knowledge 模块另包含 Milvus 向量存储支持 |
+| 异步处理 | Kafka、Spring Batch、PostgreSQL 持久任务 |
+| 缓存与上传队列 | Redis |
+| 文件解析 | Apache Tika、PDFBox、Apache POI |
+| 部署参考 | Dockerfile、Docker Compose 和部分 Kubernetes 配置 |
 
-### 微服务架构
+### 模块划分
 
-系统采用6个微服务构成：
+项目包含 8 个 Maven 模块：1 个公共模块和 7 个可运行服务。端口为仓库配置默认值，部署时以实际生效配置为准。
 
-| 服务名称                      | 端口   | 职责           |
-|---------------------------|------|--------------|
-| risk-warning-gateway      | 8088 | API网关，统一入口   |
-| risk-warning-org          | 8095 | 用户、企业、项目管理   |
-| risk-warning-processing   | 8084 | 信息处理，风险分析    |
-| risk-warning-knowledge    | 8089 | 知识库管理(指标/法规) |
-| risk-warning-report       | 8093 | 评估报告生成       |
-| risk-warning-notification | 8091 | 通知和消息推送      |
+| 模块 | 默认端口 | 职责 |
+| --- | --- | --- |
+| `risk-warning-common` | — | 公共实体、DTO、鉴权、工具、消息定义及持久任务组件 |
+| `risk-warning-gateway` | 8088 | 统一 API 入口、JWT 校验、HTTP 和 WebSocket 路由 |
+| `risk-warning-org` | 8095 | 用户、企业、项目、文件上传及评估任务发起 |
+| `risk-warning-processing` | 8084 | 文本处理、行为分类、语义匹配和指标计算 |
+| `risk-warning-knowledge` | 8089 | 知识库向量化及向量存储能力 |
+| `risk-warning-report` | 8093 | 风险汇总、评估完成处理及报告查询 |
+| `risk-warning-notification` | 8091 / 9090 | HTTP 服务 / Netty WebSocket 通知服务 |
+| `risk-warning-bert` | 8090 / 8000 | Java 模型服务接口 / 其管理的 Python 服务 |
 
-## 快速启动
+## 评估流程
 
-### 环境要求
+```mermaid
+flowchart TD
+    A[用户创建企业和项目] --> B[上传材料并确认]
+    B --> C[org：Redis 队列交接到持久任务]
+    C --> D[合并文件并创建待评估记录]
+    D -->|behavior_processing_tasks| E[processing：文本提取、分类及向量化]
+    E -->|indicator_calculation_tasks| F[匹配指标与法规、计算指标结果]
+    F --> G[(PostgreSQL 指标结果 / ES 行为与风险)]
+    F -->|assessment_completed_events| H[report：汇总报告并更新评估状态]
+    G --> H
+    H -->|notification_tasks| I[notification：WebSocket 推送]
+    H --> J[前端查询总体、指标和风险明细]
+```
 
-- Java 8
-- Maven 3.8+
-- Docker 20.10+
-- Docker Compose 2.0+
+确认上传成功表示任务已提交，评估通过后台异步完成。报告使用请求中的评估 ID 查询持久化结果，企业和项目查询返回各自范围内最新创建的评估记录。
+
+报告得分采用百分制：指标得分按原始得分与满分换算，总分和维度分按满分权重汇总，保留两位小数。高分代表低风险；总体风险等级沿用风险判定规则，不能仅根据总分推断。缺少有效指标时不会生成虚构的满分结果。
+
+运行链路已移除模拟完成任务和固定报告。旧演示代码保存在 `documents/legacy-simulation/`，不参与 Maven 编译；历史模拟快照会提示重新上传原始材料评估。
 
 ## 项目结构
 
-```
+```text
 Risk_Warning_Platform/
-├── docker-compose.yml              # Docker基础设施编排
-├── pom.xml                         # 父级Maven配置
-├── start.sh                        # 系统启动脚本
-├── stop.sh                         # 系统停止脚本
-├── README.md                       # 项目说明文档
-├── schema.sql                      # 数据库初始化脚本
-├── es_mappings.json               # Elasticsearch索引映射
-│
-├── risk-warning-common/           # 公共模块
-│   ├── src/main/java/
-│   │   └── com/riskwarning/common/
-│   │       ├── enums/             # 枚举类
-│   │       ├── exception/         # 异常处理
-│   │       └── result/            # 统一返回结果
-│   └── pom.xml
-│
-├── risk-warning-gateway/          # API网关服务
-├── risk-warning-registry/         # 服务注册中心
-├── risk-warning-user/             # 用户认证服务
-├── risk-warning-enterprise/       # 企业管理服务
-├── risk-warning-project/          # 项目管理服务
-├── risk-warning-data-collection/  # 数据收集服务
-├── risk-warning-behavior-processing/ # 行为处理服务
-├── risk-warning-knowledge/        # 知识库服务
-├── risk-warning-matching-calculation/ # 匹配计算服务
-├── risk-warning-risk-assessment/  # 风险评估服务
-├── risk-warning-report/           # 报告服务
-├── risk-warning-event/            # 事件服务
-├── risk-warning-visualization/    # 可视化服务
-└── risk-warning-notification/     # 通知服务
+├── pom.xml                         # 父 POM、模块及依赖版本
+├── .mvn/jvm.config                 # Maven JVM 编码配置
+├── risk-warning-common/            # 公共模块与持久任务组件
+├── risk-warning-gateway/           # API 网关
+├── risk-warning-org/               # 用户、企业、项目及上传
+├── risk-warning-processing/        # 行为分析与指标计算
+├── risk-warning-knowledge/         # 知识库向量化与存储
+├── risk-warning-report/            # 评估汇总与报告查询
+├── risk-warning-notification/      # 消息通知与 WebSocket
+├── risk-warning-bert/
+│   ├── src/                        # Java 模型服务
+│   ├── bert-service/               # Python 向量化服务及依赖
+│   └── classify-service/           # Python 分类实现
+├── documents/                      # 数据库脚本、接口及流程说明
+│   ├── schema.sql
+│   └── legacy-simulation/          # 历史演示代码归档
+└── build/                          # Compose、Dockerfile 及 K8s 参考配置
 ```
 
-## 核心功能模块
+## 开发与运行
 
-### 1. 用户与权限管理
-- 用户注册、登录、权限控制
-- 企业级权限（admin/member）
-- 项目级权限（project_admin/editor/viewer）
-- JWT token认证
+### 环境准备
 
-### 2. 企业信息管理
-- 企业档案管理和认证
-- 统一社会信用代码验证
-- 企业成员和角色管理
-- 行业和地域配置
+- Java：源码编译目标为 Java 8；Docker 构建使用 JDK 17，可优先使用 JDK 17 开发。
+- Maven：建议 3.9.x。
+- Python：准备兼容模型依赖的 Python 环境，依赖清单位于 `risk-warning-bert/bert-service/requirements.txt`。
+- 基础设施：Nacos、PostgreSQL、Redis、Kafka、Elasticsearch；使用 Milvus 存储功能时另行准备 Milvus。
+- 模型与知识库：准备 BERT 模型、分类模型所需文件，以及可供匹配的指标、法规和对应向量。
 
-### 3. 项目管理
-- 项目创建和配置
-- 项目生命周期管理
-- 团队协作和权限分配
-- 进度跟踪
+业务服务通过各模块 `bootstrap.yml`、`application.yml` 和公共 `bootstrap-common.yml` 加载配置。启动前核对 Nacos 地址、命名空间及共享配置，并配置数据库、Redis、Kafka、ES 连接信息。仓库中的环境值需要按实际部署调整。
 
-### 4. 行为信息处理
-- 文档上传和解析（PDF/Word/Excel）
-- 行为信息标准化
-- BERT向量化处理
-- Elasticsearch索引存储
+模型服务需要配置 `bert.python.path`、`bert.python.script` 和模型路径；processing 的 `bert.service.url`、`knowledge.service.url`，以及 knowledge 的 `vectorization.api.local-api-url` 必须指向可访问的服务。跨容器或跨机器部署时，应使用对应服务地址。
 
-### 5. 智能匹配与计算
-- AI语义匹配（行为-指标-法规）
-- 动态指标计算引擎
-- 多种计算规则支持
-- 结果缓存和追溯
+### 构建与启动
 
-### 6. 风险评估与预警
-- 风险规则引擎
-- 实时风险触发
-- 多级风险等级
-- 预警消息推送
-
-### 7. 评估报告
-- 多格式报告生成（PDF/Word/Excel）
-- 数据可视化图表
-- 报告分享和权限控制
-
-## API文档
-
-启动系统后，可以通过以下方式访问API文档：
-
-- Swagger UI: http://localhost:8080/doc.html
-- OpenAPI JSON: http://localhost:8080/v3/api-docs
-
-## 监控和日志
-
-### 服务监控
-- Spring Boot Actuator健康检查
-- 访问地址: http://localhost:[端口]/actuator/health
-
-### 日志文件
-```bash
-# 查看服务日志
-tail -f logs/risk-warning-gateway.log
-tail -f logs/risk-warning-user.log
-# ... 其他服务日志
-```
-
-### Nacos服务监控
-- 服务列表: http://localhost:8848/nacos/#/serviceManagement
-- 配置管理: http://localhost:8848/nacos/#/configurationManagement
-
-## 开发指南
-
-### 添加新的微服务
-
-1. **创建模块目录**
-```bash
-mkdir risk-warning-new-service
-```
-
-2. **创建pom.xml**（参考现有服务）
-
-3. **创建启动类和配置文件**
-
-4. **在根pom.xml中添加模块**
-```xml
-<modules>
-    <module>risk-warning-new-service</module>
-</modules>
-```
-
-5. **在网关配置中添加路由规则**
-
-### 数据库操作
-
-- PostgreSQL连接: `jdbc:postgresql://localhost:5432/risk_warning_platform`
-- 用户名/密码: postgres/password
-- JPA自动建表已开启
-
-### 缓存使用
-
-Redis数据库分配：
-- Database 0: 用户服务
-- Database 1: 企业服务  
-- Database 2: 行为处理服务
-- Database 3: 通知服务
-
-## 部署指南
-
-### Docker容器化部署
-
-每个服务都包含Dockerfile，可以构建为Docker镜像：
+在项目根目录构建并安装全部模块：
 
 ```bash
-# 构建特定服务镜像
-docker build -t risk-warning-gateway:latest ./risk-warning-gateway/
-
-# 或构建所有服务
-./build-all-images.sh
+mvn clean install -DskipTests
 ```
 
-### Kubernetes部署
+准备好基础设施和配置后，可在 IDE 中运行各模块的 `*Application` 启动类，也可使用 Maven 启动单个服务，例如：
 
-可以基于Docker镜像创建Kubernetes部署文件。
+```bash
+mvn -pl risk-warning-org spring-boot:run
+```
 
-### 生产环境配置
+建议先启动模型服务与 knowledge，再启动 processing、report、notification、org 和 gateway。确认模型接口可用、服务注册成功且消费者就绪后，再上传材料发起评估。
 
-1. **修改数据库配置**
-2. **配置邮件服务**  
-3. **设置Redis密码**
-4. **配置Kafka集群**
-5. **启用服务认证**
+如需可执行 Spring Boot JAR，在完成上述构建后为目标服务执行打包，例如：
 
-## 常见问题
+```bash
+mvn -pl risk-warning-org package spring-boot:repackage -DskipTests
+java -jar risk-warning-org/target/risk-warning-org-1.0.0.jar
+```
 
-### Q1: 服务启动失败
-**A**: 检查端口占用、数据库连接、Nacos注册中心状态
+容器部署参考 `build/docker-compose.yml`、`build/docker-compose-elasticsearch.yml` 和各服务的 Dockerfile。使用前需核对镜像构建路径、网络地址、配置来源和持久化目录，补齐实际环境所需的基础设施。
 
-### Q2: 数据库连接失败
-**A**: 确认PostgreSQL已启动，检查连接配置
+### 异步任务配置
 
-### Q3: 服务注册失败  
-**A**: 检查Nacos服务状态，确认网络连通性
+| 配置 | 用途 |
+| --- | --- |
+| `UPLOAD_CONFIRM_QUEUE_KEY` | 隔离不同环境的上传队列；org 当前默认值为 `file:confirmed:queue:dcw` |
+| `ASSESSMENT_WORK_NAMESPACE` | 持久任务的部署标识；org、processing、report 分别添加服务后缀，重启及迁移时应保持稳定 |
+| `assessment.reliability.enabled` | 启用持久任务机制，相关服务当前配置为 `true` |
+| `NOTIFICATION_WEBSOCKET_URI` | 网关连接 notification 的 WebSocket 地址，默认 `ws://localhost:9090` |
 
-### Q4: Elasticsearch连接失败
-**A**: 确认Elasticsearch已启动，检查端口9200
+首次启动时，持久任务组件会初始化 `assessment_work` 表及索引，数据库账号需要相应权限。不同开发环境应协调上传队列、任务命名空间和 Kafka 消费配置。同一批任务的处理实例必须能够访问上传文件所在目录。
 
-## 贡献指南
+## 主要接口
 
-1. Fork项目
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)  
-5. 开启Pull Request
+下表为通过网关访问的路径。除注册、登录和明确放行的企业评估查询外，接口需要携带 `Authorization: Bearer <本地 JWT>`。响应沿用项目的 `Result` 包装，调用方需要同时检查业务结果。
 
-## 许可证
+| 方法 | 路径 | 功能 |
+| --- | --- | --- |
+| POST | `/api/org/user/register`、`/api/org/user/login` | 注册、登录 |
+| GET | `/api/org/user/profile` | 当前用户资料 |
+| GET / POST | `/api/org/enterprise`、`/api/org/project` | 企业、项目列表与创建 |
+| GET / PUT / PATCH / DELETE | `/api/org/enterprise/{enterpriseId}` | 企业详情、修改、删除 |
+| GET / PUT / PATCH / DELETE | `/api/org/project/{projectId}` | 项目详情、修改、删除 |
+| POST | `/api/org/file/initUpload`、`/api/org/file/uploadChunk` | 初始化上传、提交分片 |
+| POST | `/api/org/file/confirmUpload?projectId=...` | 确认上传，提交异步评估 |
+| GET | `/api/org/project/{projectId}/assessment` | 项目最新评估 |
+| GET | `/api/org/enterprise/{name}/assessment` | 企业最新评估，允许匿名访问；企业名称需 URL 编码 |
+| GET | `/api/report/report/report/general/{assessmentId}` | 总体评估报告 |
+| GET | `/api/report/report/report/indicatorResult/{assessmentId}` | 指标及维度得分、关联行为 |
+| GET | `/api/report/report/report/risk?assessmentId=...` | 风险明细 |
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+报告路径中的重复 `report` 来自现有 controller 映射与网关前缀叠加。直连 report 服务时，移除 `/api/report` 前缀。WebSocket 网关路径为 `/api/notification/ws`，连接方式及鉴权需与前端实现配套。
 
-## 联系方式
+## 验证与排查
 
-- 项目负责人: [Your Name]
-- 邮箱: [your.email@example.com]
-- 项目地址: [Project URL]
+运行本地回归测试，排除依赖在线基础设施的测试：
+
+```bash
+mvn test '-Dtest=*Test,!ConnectivityTest,!BatchTest,!ESSearchTest' '-Dsurefire.failIfNoSpecifiedTests=false'
+```
+
+2026-10-14 验证：8 个模块打包成功，74 项测试通过，1 项需显式启用的在线 ES 只读检查跳过。覆盖持久任务交接与恢复、真实上传执行、评估查询、报告评分、企业项目管理及 WebSocket 连接管理；该结果不代表线上端到端评估已通过。
+
+遇到评估未完成时，可结合服务日志的 `AssessmentFlow`、`UPLOAD_HANDOFF`、`DURABLE_WORK`、`KAFKA_SEND ACK`，以及 `assessment_work` 的状态和错误信息逐段定位。确认上传、Kafka broker 确认、报告完成和浏览器收到通知分别代表不同阶段。
+
+持久任务支持至少一次执行，文件操作和 ES 写入不能随数据库事务统一回滚；notification 的连接状态保存在实例内存中，多实例部署仍需配套通知路由。具体恢复方法见下方文档。
+
+## 相关文档
+
+- [恢复真实评估流程](documents/restore-real-assessment-flow.md)
+- [评估流程可靠性与任务恢复](documents/assessment-reliability.md)
+- [企业、项目管理接口](documents/enterprise-project-management-api.md)
+- [百分制评分及前端取值](documents/assessment-percentage-scores.md)
+- [指标关联行为](documents/indicator-related-behaviors.md)
+- [数据库初始化脚本](documents/schema.sql)
+
+当前用户认证使用本地邮箱密码和 JWT。统一身份认证平台 SSO 已完成方案分析，尚未接入当前代码。
