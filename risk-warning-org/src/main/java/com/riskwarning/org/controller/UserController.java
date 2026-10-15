@@ -4,13 +4,23 @@ import com.riskwarning.common.annotation.AuthRequired;
 import com.riskwarning.common.context.UserContext;
 import com.riskwarning.common.dto.*;
 import com.riskwarning.common.result.Result;
+import com.riskwarning.org.config.SsoProperties;
+import com.riskwarning.org.service.SsoService;
 import com.riskwarning.org.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 用户认证控制器
@@ -22,6 +32,8 @@ import javax.validation.Valid;
 public class UserController {
 
     private final UserService userService;
+    private final SsoService ssoService;
+    private final SsoProperties ssoProperties;
 
     /**
      * 用户注册
@@ -53,6 +65,41 @@ public class UserController {
             return Result.success(loginResponse);
         } catch (Exception e) {
             log.error("用户登录失败: {}", e.getMessage());
+            return Result.fail(e.getMessage());
+        }
+    }
+
+    /**
+     * 获取统一身份认证跳转地址（前端可直接 location.href）
+     */
+    @GetMapping("/sso/authorize-url")
+    public Result<Map<String, String>> ssoAuthorizeUrl(@RequestParam(required = false) String state) {
+        Map<String, String> data = new HashMap<>(2);
+        data.put("url", ssoService.buildAuthorizeUrl(state));
+        return Result.success(data);
+    }
+
+    /**
+     * 统一身份认证回调：用 code 换本地 JWT。
+     * 默认 302 到前端并带 ?token=；加 format=json 则直接返回 LoginResponse（便于联调）。
+     */
+    @GetMapping("/sso/callback")
+    public Object ssoCallback(@RequestParam("code") String code,
+                              @RequestParam(value = "format", required = false) String format) {
+        try {
+            LoginResponse loginResponse = ssoService.loginByCode(code);
+            if ("json".equalsIgnoreCase(format)) {
+                return Result.success(loginResponse);
+            }
+            String token = URLEncoder.encode(loginResponse.getToken(), StandardCharsets.UTF_8.name());
+            String target = ssoProperties.getFrontendRedirect();
+            String sep = target.contains("?") ? "&" : "?";
+            URI location = URI.create(target + sep + "token=" + token);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setLocation(location);
+            return new ResponseEntity<>(headers, HttpStatus.FOUND);
+        } catch (Exception e) {
+            log.error("SSO 回调失败: {}", e.getMessage());
             return Result.fail(e.getMessage());
         }
     }
