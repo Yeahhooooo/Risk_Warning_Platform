@@ -10,13 +10,22 @@ assessment:
 # Cooperating instances in one deployment should deliberately use the same value.
 
 
-#org:
-#  upload:
-#    queue-key: ${UPLOAD_CONFIRM_QUEUE_KEY:file:confirmed:queue:lenovo}
-
+# 上传确认队列：服务器默认 server0；本地请设独立后缀，避免抢队列，例如：
+#   UPLOAD_CONFIRM_QUEUE_KEY=file:confirmed:queue:lenovo
 org:
   upload:
-    queue-key: ${UPLOAD_CONFIRM_QUEUE_KEY:file:confirmed:queue:dcw}
+    queue-key: ${UPLOAD_CONFIRM_QUEUE_KEY:file:confirmed:queue:server0}
+
+# 统一身份认证 SSO（课题 3.2）
+sso:
+  base-url: ${SSO_BASE_URL:http://10.106.6.44}
+  client-id: ${SSO_CLIENT_ID:458159e8b3e596f869c3b1d96f540f48}
+  client-secret: ${SSO_CLIENT_SECRET:4ed54db63a762657837518f53f925de1}
+  appword: ${SSO_APPWORD:2E66D2D1835ECEEFF262449AFCE042C7A7BF2AE3FACAD5F3E796D40279BE5C8C}
+  # 须与身份平台后台备案完全一致
+  redirect-uri: ${SSO_REDIRECT_URI:http://10.106.6.44:18088/api/org/user/sso/callback}
+  # 回调成功后跳转前端，并附带 ?token=
+  frontend-redirect: ${SSO_FRONTEND_REDIRECT:http://10.106.6.44:3000}
 ## JWT配置
 #jwt:
 #  secret: risk-warning-platform-jwt-secret-key-2023

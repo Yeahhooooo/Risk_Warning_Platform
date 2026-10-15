@@ -31,7 +31,7 @@ public class AuthFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         // 放行无需认证的路径
         String path = exchange.getRequest().getURI().getPath();
-        if (path.contains("/login") || path.contains("/register")) {
+        if (path.contains("/login") || path.contains("/register") || path.contains("/sso/")) {
             return chain.filter(exchange);
         }
 
