@@ -4,7 +4,6 @@ import com.riskwarning.common.dto.enterprise.EnterpriseUpdateRequest;
 import com.riskwarning.common.annotation.AuthRequired;
 import com.riskwarning.common.dto.enterprise.EnterpriseUserResponse;
 import com.riskwarning.common.po.enterprise.Enterprise;
-import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.dto.AddMemberRequest;
 import com.riskwarning.common.dto.enterprise.EnterpriseCreateRequest;
 import com.riskwarning.common.result.Result;
@@ -12,6 +11,7 @@ import com.riskwarning.org.service.EnterpriseService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 
 /**
@@ -92,14 +92,13 @@ public class EnterpriseController {
 
 
     /**
-     * 按企业名称查询评估ID最大的评估结果，允许匿名访问
+     * 按企业名称查询评估ID最大的报告，包含评估状态及失败原因，允许匿名访问
      * @param name 企业名称
      * @return 最近一次评估结果，若无评估记录则 data 为 null
      */
     @GetMapping("/{name}/assessment")
-    public Result<Assessment> getLatestAssessmentByName(@PathVariable String name) {
-        Assessment assessment = enterpriseService.getLatestAssessmentByEnterpriseName(name);
-        return Result.success(assessment);
+    public Result<Map<String, Object>> getLatestAssessmentByName(@PathVariable String name) {
+        return Result.success(enterpriseService.getLatestAssessmentReportByEnterpriseName(name));
     }
 
 

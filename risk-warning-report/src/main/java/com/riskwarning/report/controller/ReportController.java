@@ -1,5 +1,9 @@
 package com.riskwarning.report.controller;
 
+import com.riskwarning.report.service.AssessmentService;
+import com.riskwarning.common.annotation.AuthRequired;
+import java.util.Map;
+
 import com.riskwarning.common.utils.AssessmentDataGuard;
 import com.riskwarning.common.po.report.Assessment;
 import com.riskwarning.common.result.Result;
@@ -14,7 +18,6 @@ import org.springframework.web.bind.annotation.*;
  * 按请求的评估 ID 查询持久化结果。
  */
 @RestController
-@RequestMapping("/report")
 public class ReportController {
 
 
@@ -24,19 +27,28 @@ public class ReportController {
     @Autowired
     private AssessmentRepository assessmentRepository;
 
+    @Autowired
+    private AssessmentService assessmentService;
 
-    @GetMapping("/report/indicatorResult/{assessmentId}")
+    @AuthRequired
+    @GetMapping("/assessment/{assessmentId}/status")
+    public Result<Map<String, Object>> status(@PathVariable Long assessmentId) {
+        return Result.success(assessmentService.getAssessmentStatus(assessmentId));
+    }
+
+
+    @GetMapping("/report/report/indicatorResult/{assessmentId}")
     public Result reportIndicatorResult(@PathVariable Long assessmentId) {
         return Result.success(reportService.assembleIndicatorResult(findAssessment(assessmentId)));
     }
 
-    @GetMapping("/report/risk")
+    @GetMapping("/report/report/risk")
     public Result reportRisk(@RequestParam Long assessmentId) {
         findAssessment(assessmentId);
         return Result.success(reportService.assembleRisk(assessmentId));
     }
 
-    @GetMapping("/report/general/{assessmentId}")
+    @GetMapping("/report/report/general/{assessmentId}")
     public Result reportGeneral(@PathVariable Long assessmentId) {
         return Result.success(reportService.assembleGeneral(findAssessment(assessmentId)));
     }

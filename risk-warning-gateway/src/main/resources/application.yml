@@ -24,6 +24,12 @@ spring:
           filters:
             - StripPrefix=2
         # 报告服务
+        - id: assessment-status-service
+          uri: lb://risk-warning-report
+          predicates:
+            - Path=/api/assessment/**
+          filters:
+            - StripPrefix=1
         - id: report-service
           uri: lb://risk-warning-report
           predicates:

@@ -6,6 +6,11 @@ import com.riskwarning.common.dto.enterprise.EnterpriseUpdateRequest;
 import com.riskwarning.common.po.report.Assessment;
 
 import java.util.List;
+import java.util.Map;
+import com.riskwarning.common.result.Result;
+import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 
 
 /**
@@ -55,6 +60,16 @@ public interface EnterpriseService {
      * @return 最近一次评估结果，若企业不存在或没有评估记录则返回 null
      */
     Assessment getLatestAssessmentByEnterpriseName(String name);
+
+    /** Same general report payload as the assessment-ID report endpoint, including failure fields. */
+    Map<String, Object> getLatestAssessmentReportByEnterpriseName(String name);
+
+    /** Kept beside its only caller's contract to avoid adding a separate client file. */
+    @FeignClient(name = "risk-warning-report", contextId = "enterpriseAssessmentReport")
+    interface ReportClient {
+        @GetMapping("/report/report/general/{assessmentId}")
+        Result<Map<String, Object>> general(@PathVariable("assessmentId") Long assessmentId);
+    }
 
     Enterprise getEnterprise(Long id);
 

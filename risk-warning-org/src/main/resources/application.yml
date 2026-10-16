@@ -1,20 +1,28 @@
 server:
   port: 8095
 
+feign:
+  client:
+    config:
+      enterpriseAssessmentReport:
+        connectTimeout: 3000
+        readTimeout: 10000
+
 assessment:
   reliability:
     enabled: true
-    namespace: ${ASSESSMENT_WORK_NAMESPACE:${COMPUTERNAME:local}}-org
+    namespace: ${ASSESSMENT_WORK_NAMESPACE:${COMPUTERNAME:${user.name}}}-org
 
 # Shared remote Redis: each developer's local file-processing service needs its own queue.
 # Cooperating instances in one deployment should deliberately use the same value.
 
 
-# 上传确认队列：服务器默认 server0；本地请设独立后缀，避免抢队列，例如：
-#   UPLOAD_CONFIRM_QUEUE_KEY=file:confirmed:queue:lenovo
+# 上传确认队列：默认按本机隔离；服务器实例可设置统一队列，例如：
+#   UPLOAD_CONFIRM_QUEUE_KEY=file:confirmed:queue:server0
 org:
   upload:
-    queue-key: ${UPLOAD_CONFIRM_QUEUE_KEY:file:confirmed:queue:server0}
+    assessment-timeout-seconds: ${ASSESSMENT_TIMEOUT_SECONDS:1800}
+    queue-key: ${UPLOAD_CONFIRM_QUEUE_KEY:file:confirmed:queue:${COMPUTERNAME:${user.name}}}
 
 # 统一身份认证 SSO（课题 3.2）
 sso:

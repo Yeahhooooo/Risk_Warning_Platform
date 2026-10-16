@@ -91,7 +91,7 @@ public class ConnectivityTest {
     public void testAssessmentQuery() {
         try {
 
-            Assessment assessment1 = assessmentRepository.findById(88L);
+            Assessment assessment1 = assessmentRepository.findById(88L).orElse(null);
 
             Assessment assessment = Assessment.builder()
                     .projectId(1000L)
@@ -105,7 +105,7 @@ public class ConnectivityTest {
                     .build();
             assessmentRepository.saveAndFlush(assessment);
 
-            Assessment assessment2 = assessmentRepository.findByProjectId(1000L);
+            Assessment assessment2 = assessmentRepository.findFirstByProjectIdOrderByIdDesc(1000L).orElse(null);
 
             assert assessment2.getOverallScore() == 0.0;
         } catch (Exception e) {

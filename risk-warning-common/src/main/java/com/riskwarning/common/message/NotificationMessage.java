@@ -54,6 +54,7 @@ public class NotificationMessage extends Message {
          * 评估完成通知
          */
         ASSESSMENT_COMPLETED,
+        ASSESSMENT_FAILED,
         /**
          * 风险预警通知
          */

@@ -56,6 +56,84 @@ class EnterpriseProjectManagementServiceTest {
         when(deletion.setParameter(anyString(),any())).thenReturn(deletion);
     }
     @AfterEach void clear() { UserContext.clear(); }
+
+    @Test void firstUploadCreatesAssessmentAndWatchdogAndNextFileReusesIt() {
+        projectRole(ProjectRole.PROJECT_ADMIN);
+        when(assessmentRepository().saveAndFlush(any())).thenAnswer(call -> {
+            com.riskwarning.common.po.report.Assessment row = call.getArgument(0); row.setId(12L); return row;
+        });
+        com.riskwarning.common.po.report.Assessment first = projectService.beginUploadAssessment(18L);
+        assertEquals(com.riskwarning.common.enums.AssessmentStatusEnum.UPLOADING, first.getStatus());
+        verify(work).enqueueAt(eq("ASSESSMENT_WATCHDOG"), eq(first.getUploadTaskId()), contains("\"assessmentId\":12"), any());
+        when(assessmentRepository().findFirstByProjectIdOrderByIdDesc(18L)).thenReturn(Optional.of(first));
+        assertSame(first, projectService.beginUploadAssessment(18L));
+        verify(assessmentRepository(), times(1)).saveAndFlush(any());
+        first.setStatus(com.riskwarning.common.enums.AssessmentStatusEnum.ASSESSING);
+        assertThrows(BusinessException.class, () -> projectService.beginUploadAssessment(18L));
+    }
+
+    @Test void uploadFailureListenerPersistsOnceAndCannotOverwriteTerminalAssessment() {
+        com.riskwarning.common.utils.KafkaUtils kafka = mock(com.riskwarning.common.utils.KafkaUtils.class);
+        ReflectionTestUtils.setField(projectService, "kafka", kafka);
+        com.riskwarning.common.po.report.Assessment row = com.riskwarning.common.po.report.Assessment.builder()
+                .id(12L).projectId(18L).uploadTaskId("batch").status(com.riskwarning.common.enums.AssessmentStatusEnum.UPLOADING).build();
+        when(em.find(com.riskwarning.common.po.report.Assessment.class, 12L, LockModeType.PESSIMISTIC_WRITE)).thenReturn(row);
+        com.riskwarning.common.message.AssessmentCompletedEventMessage event =
+                new com.riskwarning.common.message.AssessmentCompletedEventMessage("failed", "now", "batch", 5L, 18L, 12L);
+        event.setFailureStage("UPLOAD_CHUNK"); event.setFailureDetail("full exception stack");
+        projectService.onUploadFailure(event);
+        assertEquals(com.riskwarning.common.enums.AssessmentStatusEnum.FAILED, row.getStatus());
+        assertEquals("UPLOAD_CHUNK_FAILED", row.getFailureCode()); assertNotNull(row.getFailedAt());
+        projectService.onUploadFailure(event);
+        verify(kafka, times(2)).sendMessage(any());
+        row.setStatus(com.riskwarning.common.enums.AssessmentStatusEnum.ASSESSED);
+        projectService.onUploadFailure(event);
+        assertEquals(com.riskwarning.common.enums.AssessmentStatusEnum.ASSESSED, row.getStatus());
+        verifyNoMoreInteractions(kafka);
+    }
+
+    @Test void confirmUsesTheSameAssessmentAndSubmitsDurably() {
+        projectRole(ProjectRole.PROJECT_ADMIN);
+        com.riskwarning.common.po.report.Assessment row = com.riskwarning.common.po.report.Assessment.builder()
+                .id(12L).projectId(18L).uploadTaskId("batch").status(com.riskwarning.common.enums.AssessmentStatusEnum.UPLOADING).build();
+        when(em.find(com.riskwarning.common.po.report.Assessment.class, 12L, LockModeType.PESSIMISTIC_WRITE)).thenReturn(row);
+        com.riskwarning.org.entity.dto.UploadConfirmDto task = com.riskwarning.org.entity.dto.UploadConfirmDto.builder()
+                .projectId(18L).assessmentId(12L).taskId("batch").build();
+        projectService.confirmUploadAssessment(task);
+        projectService.confirmUploadAssessment(task);
+        assertEquals(com.riskwarning.common.enums.AssessmentStatusEnum.TO_BE_ASSESSED, row.getStatus());
+        verify(work, times(1)).enqueue(eq("UPLOAD_INBOX"), eq("batch"), contains("\"assessmentId\":12"));
+    }
+
+    private AssessmentRepository assessmentRepository() {
+        return (AssessmentRepository) ReflectionTestUtils.getField(projectService, "assessmentRepository");
+    }
+
+    @Test void uploadAssessmentIsCreatedOnceBeforeMergingAndRejectsWrongProject() {
+        AssessmentRepository repository = mock(AssessmentRepository.class);
+        ProjectServiceImpl service = new ProjectServiceImpl(mock(ProjectRepository.class),
+                mock(ProjectMemberRepository.class), em, repository);
+        @SuppressWarnings("unchecked") TypedQuery<com.riskwarning.common.po.report.Assessment> query = mock(TypedQuery.class);
+        when(em.createQuery(anyString(), eq(com.riskwarning.common.po.report.Assessment.class))).thenReturn(query);
+        when(query.setParameter("taskId", "upload")).thenReturn(query);
+        when(query.getResultList()).thenReturn(java.util.Collections.emptyList());
+        when(repository.saveAndFlush(any())).thenAnswer(call -> {
+            com.riskwarning.common.po.report.Assessment assessment = call.getArgument(0);
+            assessment.setId(12L);
+            return assessment;
+        });
+        assertEquals(12L, service.prepareUploadAssessment(18L, "upload"));
+        org.mockito.ArgumentCaptor<com.riskwarning.common.po.report.Assessment> created =
+                org.mockito.ArgumentCaptor.forClass(com.riskwarning.common.po.report.Assessment.class);
+        verify(repository).saveAndFlush(created.capture());
+        assertEquals(com.riskwarning.common.enums.AssessmentStatusEnum.TO_BE_ASSESSED, created.getValue().getStatus());
+        assertEquals("upload", created.getValue().getUploadTaskId());
+        when(query.getResultList()).thenReturn(java.util.Collections.singletonList(created.getValue()));
+        assertEquals(12L, service.prepareUploadAssessment(18L, "upload"));
+        verify(repository, times(1)).saveAndFlush(any());
+        created.getValue().setProjectId(99L);
+        assertThrows(IllegalArgumentException.class, () -> service.prepareUploadAssessment(18L, "upload"));
+    }
     private void enterpriseAdmin() {
         when(em.find(EnterpriseUser.class,new EnterpriseUserId(7L,5L)))
                 .thenReturn(EnterpriseUser.builder().role(EnterpriseRole.admin).build());

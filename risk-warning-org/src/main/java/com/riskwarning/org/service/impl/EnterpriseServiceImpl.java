@@ -27,12 +27,18 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.persistence.EntityManager;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import com.riskwarning.common.result.Result;
+import feign.FeignException;
 import java.util.stream.Collectors;
 
 @Service
 public class EnterpriseServiceImpl implements EnterpriseService {
     @org.springframework.beans.factory.annotation.Autowired
     private ProjectService projectService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private EnterpriseService.ReportClient reportClient;
 
 
     private final EnterpriseRepository enterpriseRepository;
@@ -173,6 +179,27 @@ public class EnterpriseServiceImpl implements EnterpriseService {
         if (projectIds.isEmpty()) return null;
         return assessmentRepository.findFirstByProjectIdInOrderByIdDesc(projectIds)
                 .map(AssessmentDataGuard::requireReal).orElse(null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getLatestAssessmentReportByEnterpriseName(String name) {
+        Assessment latest = getLatestAssessmentByEnterpriseName(name);
+        if (latest == null) return null;
+        Result<Map<String, Object>> response;
+        try {
+            response = reportClient.general(latest.getId());
+        } catch (FeignException unavailable) {
+            // A failed read must never change the assessment's business status.
+            throw new BusinessException(503, "评估报告暂时无法查询，请稍后重试（评估ID：" + latest.getId() + "）");
+        }
+        if (response == null || response.getCode() == null)
+            throw new BusinessException(502, "报告服务返回无效响应");
+        if (response.getCode() != 200)
+            throw new BusinessException(response.getCode(), response.getMessage());
+        if (response.getData() == null)
+            throw new BusinessException(502, "报告服务未返回评估结果");
+        return response.getData();
     }
 
 

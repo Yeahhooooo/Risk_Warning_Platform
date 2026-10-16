@@ -46,4 +46,21 @@ class ReportControllerRealResultTest {
         assertThrows(BusinessException.class, () -> controller.reportRisk(42L));
         verifyNoInteractions(service);
     }
+
+    @Test void statusKeepsExistingResponseAndRouteWithoutQueryingReport() throws Exception {
+        com.riskwarning.report.service.AssessmentService assessments = mock(com.riskwarning.report.service.AssessmentService.class);
+        ReflectionTestUtils.setField(controller, "assessmentService", assessments);
+        java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("assessmentId", 12L);
+        data.put("status", "FAILED");
+        data.put("failureReason", "评估报告汇总失败，请稍后重新评估");
+        when(assessments.getAssessmentStatus(12L)).thenReturn(data);
+        assertSame(data, controller.status(12L).getData());
+        verifyNoInteractions(service, repository);
+        org.springframework.web.bind.annotation.GetMapping mapping = ReportController.class
+                .getMethod("status", Long.class).getAnnotation(org.springframework.web.bind.annotation.GetMapping.class);
+        assertArrayEquals(new String[]{"/assessment/{assessmentId}/status"}, mapping.value());
+        assertArrayEquals(new String[]{"/report/report/general/{assessmentId}"}, ReportController.class
+                .getMethod("reportGeneral", Long.class).getAnnotation(org.springframework.web.bind.annotation.GetMapping.class).value());
+    }
 }

@@ -23,6 +23,8 @@ public class UploadConfirmDto implements Serializable {
 
     private String taskId;
 
+    private Long assessmentId;
+
     private java.util.List<UploadFileDto> files;
 
 }

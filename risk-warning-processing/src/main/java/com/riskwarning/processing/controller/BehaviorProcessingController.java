@@ -1,5 +1,8 @@
 package com.riskwarning.processing.controller;
 
+import com.riskwarning.common.po.report.Assessment;
+import com.riskwarning.common.enums.AssessmentStatusEnum;
+
 import com.riskwarning.common.annotation.AuthRequired;
 import com.riskwarning.common.context.UserContext;
 import com.riskwarning.common.result.Result;
@@ -56,9 +59,15 @@ public class BehaviorProcessingController {
     @PostMapping("/process-project/{projectId}/{assessmentId}")
     @AuthRequired
     public Result processProject(@PathVariable Long projectId, @PathVariable Long assessmentId) {
+        Assessment assessment = behaviorProcessingService.requireAssessmentAccess(assessmentId, projectId);
+        if (assessment.getStatus() == AssessmentStatusEnum.FAILED
+                || assessment.getStatus() == AssessmentStatusEnum.ASSESSED)
+            return Result.fail(409, "评估已结束，请重新提交评估");
         long started = System.nanoTime();
         log.info("[AssessmentFlow] stage=DIRECT_ASSESSMENT status=START projectId={} assessmentId={}", projectId, assessmentId);
         try {
+            if (!behaviorProcessingService.startAssessment(assessmentId, projectId))
+                return Result.fail(409, "评估已结束，请重新提交评估");
             log.info("开始处理项目的所有行为: projectId={}", projectId);
             behaviorProcessingService.processProjectBehaviors(UserContext.getUser().getId(), projectId, assessmentId);
             log.info("[AssessmentFlow] stage=DIRECT_ASSESSMENT status=DONE projectId={} assessmentId={} elapsedMs={}",
@@ -67,11 +76,15 @@ public class BehaviorProcessingController {
         } catch (IllegalArgumentException e) {
             log.error("[AssessmentFlow] stage=DIRECT_ASSESSMENT status=FAILED projectId={} assessmentId={}", projectId, assessmentId, e);
             log.warn("处理项目行为时参数错误: projectId={}, error={}", projectId, e.getMessage());
-            return Result.fail(400, e.getMessage());
+            behaviorProcessingService.reportAssessmentFailure(UserContext.getUser().getId(), projectId, assessmentId,
+                    "INDICATOR_CALCULATION", e);
+            return Result.fail(400, "指标计算失败，请查询评估状态了解失败原因");
         } catch (Exception e) {
             log.error("[AssessmentFlow] stage=DIRECT_ASSESSMENT status=FAILED projectId={} assessmentId={}", projectId, assessmentId, e);
             log.error("处理项目行为失败: projectId={}", projectId, e);
-            return Result.fail("处理项目行为失败: " + e.getMessage());
+            behaviorProcessingService.reportAssessmentFailure(UserContext.getUser().getId(), projectId, assessmentId,
+                    "INDICATOR_CALCULATION", e);
+            return Result.fail("指标计算失败，请查询评估状态了解失败原因");
         }
     }
 }

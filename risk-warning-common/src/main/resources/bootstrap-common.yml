@@ -6,9 +6,9 @@ spring:
         file-extension: yml
         group: DEFAULT_GROUP
         shared-configs:
-          # 服务器默认 common-dev.yaml；本地可设 NACOS_SHARED_DATA_ID=dev.yml
-          - data-id: ${NACOS_SHARED_DATA_ID:common-dev.yaml}
+          # Override NACOS_SHARED_DATA_ID for server deployments (for example common-dev.yaml).
+          - data-id: ${NACOS_SHARED_DATA_ID:dev.yml}
       discovery:
         enabled: true
-        namespace: 8bfb2348-31c2-4aa1-b8ca-adfc282f58d9
+        namespace: aaeccee1-a070-4b34-932a-b053537b286d
         server-addr: 124.71.180.24:8848

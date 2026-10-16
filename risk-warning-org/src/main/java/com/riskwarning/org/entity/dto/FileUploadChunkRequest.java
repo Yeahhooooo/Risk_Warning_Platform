@@ -12,6 +12,9 @@ public class FileUploadChunkRequest {
     @NotNull
     private Long projectId;
 
+    @NotNull
+    private Long assessmentId;
+
     @NotEmpty
     private String uploadId;
 

@@ -27,14 +27,14 @@ public class FileController {
     @PostMapping("/initUpload")
     @AuthRequired
     public Result initUpload(@Valid @RequestBody FileUploadInitRequest fileUploadInitRequest) {
-        String uploadId = fileService.initUpload(
+        FileUploadInitResponse upload = fileService.initUpload(
                 fileUploadInitRequest.getProjectId(),
                 fileUploadInitRequest.getFileHash(),
                 fileUploadInitRequest.getFileSize(),
                 fileUploadInitRequest.getTotalChunks(),
                 fileUploadInitRequest.getFileType()
         );
-        return Result.success(new FileUploadInitResponse(uploadId));
+        return Result.success(upload);
     }
 
     @PostMapping("/uploadChunk")
@@ -44,29 +44,31 @@ public class FileController {
                 fileUploadChunkRequest.getProjectId(),
                 fileUploadChunkRequest.getUploadId(),
                 fileUploadChunkRequest.getChunkIndex(),
-                fileUploadChunkRequest.getChunkData()
+                fileUploadChunkRequest.getChunkData(),
+                fileUploadChunkRequest.getAssessmentId()
         );
         return Result.success("分片上传成功");
     }
 
     @PostMapping("/confirmUpload")
     @AuthRequired
-    public Result confirmUpload(@RequestParam @NotNull Long projectId) {
+    public Result confirmUpload(@RequestParam @NotNull Long projectId, @RequestParam @NotNull Long assessmentId) {
         log.info("[AssessmentFlow] stage=UPLOAD_CONFIRM status=START projectId={}", projectId);
         try {
-            fileService.confirmUpload(projectId);
+            Long confirmedId = fileService.confirmUpload(projectId, assessmentId);
             log.info("[AssessmentFlow] stage=UPLOAD_CONFIRM status=RETURNED projectId={} checkStage=UPLOAD_QUEUE_ENQUEUE", projectId);
+            return Result.success(java.util.Collections.singletonMap("assessmentId", confirmedId));
         } catch (RuntimeException failure) {
             log.error("[AssessmentFlow] stage=UPLOAD_CONFIRM status=FAILED projectId={}", projectId, failure);
             throw failure;
         }
-        return Result.success("文件上传完成");
     }
 
     @PostMapping("/deleteFile")
     @AuthRequired
-    public Result deleteFile(@RequestParam @NotNull Long projectId, @RequestParam @NotEmpty String uploadId) {
-        fileService.deleteTempFile(projectId, uploadId);
+    public Result deleteFile(@RequestParam @NotNull Long projectId, @RequestParam @NotEmpty String uploadId,
+                             @RequestParam @NotNull Long assessmentId) {
+        fileService.deleteTempFile(projectId, uploadId, assessmentId);
         return Result.success("文件删除成功");
     }
 }

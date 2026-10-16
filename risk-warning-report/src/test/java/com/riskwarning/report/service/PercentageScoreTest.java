@@ -14,6 +14,8 @@ import com.riskwarning.report.repository.*;
 import com.riskwarning.report.service.impl.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import javax.persistence.EntityManager;
+import javax.persistence.LockModeType;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -45,8 +47,9 @@ class PercentageScoreTest {
 
     @Test void cachedLegacyReportsCannotReturnAccumulatedScores() {
         when(indicators.findByAssessmentId(1L)).thenReturn(Collections.singletonList(indicator(8,10,RiskDimensionEnum.PRODUCT_LEGITIMACY_RISK)));
+        assessment.setOverallRiskLevel(RiskLevelEnum.MEDIUM_RISK);
         AssessmentDetailVO general = new AssessmentDetailVO();
-        general.setOverallResult(OverallResult.builder().overallScore(888.0).overallRiskLevel(RiskLevelEnum.MEDIUM_RISK).build());
+        general.setOverallResult(OverallResult.builder().overallScore(888.0).overallRiskLevel(RiskLevelEnum.HIGH_RISK).build());
         assessment.setDetails(JSON.toJSONString(new AssessmentGeneralDetails(general,
                 IndicatorDistributionVO.builder().totalScore(888.0).build())));
         assertEquals(80.0, report.assembleIndicatorResult(assessment).getTotalScore());
@@ -102,9 +105,11 @@ class PercentageScoreTest {
                 indicator(80,100,RiskDimensionEnum.PRODUCT_LEGITIMACY_RISK), indicator(5,10,RiskDimensionEnum.LABOR_LEGITIMACY_RISK)));
         AssessmentRepository assessments = mock(AssessmentRepository.class);
         ProjectRepository projects = mock(ProjectRepository.class);
-        when(assessments.findById(1L)).thenReturn(Optional.of(assessment));
+        EntityManager em = mock(EntityManager.class);
+        when(em.find(Assessment.class, 1L, LockModeType.PESSIMISTIC_WRITE)).thenReturn(assessment);
         when(projects.findById(2L)).thenReturn(Optional.of(Project.builder().id(2L).build()));
         AssessmentServiceImpl service = new AssessmentServiceImpl();
+        ReflectionTestUtils.setField(service, "em", em);
         ReflectionTestUtils.setField(service, "assessmentRepository", assessments);
         ReflectionTestUtils.setField(service, "projectRepository", projects);
         ReflectionTestUtils.setField(service, "indicatorResultRepository", indicators);

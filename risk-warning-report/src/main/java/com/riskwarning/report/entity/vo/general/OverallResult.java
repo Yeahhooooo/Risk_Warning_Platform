@@ -11,4 +11,8 @@ public class OverallResult {
     private Double overallScore;
     private RiskLevelEnum overallRiskLevel;
     private AssessmentStatusEnum status;
+    private String failureCode;
+    private String failureReason;
+    private String failureStage;
+    private java.time.LocalDateTime failedAt;
 }

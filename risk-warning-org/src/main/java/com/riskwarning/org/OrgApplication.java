@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @EntityScan(basePackages = "com.riskwarning.common.po")
 @EnableJpaRepositories(basePackages = "com.riskwarning.org.repository")
 @EnableDiscoveryClient
+@org.springframework.cloud.openfeign.EnableFeignClients(clients = com.riskwarning.org.service.EnterpriseService.ReportClient.class)
 @EnableTransactionManagement
 public class OrgApplication {
     public static void main(String[] args) {

@@ -18,12 +18,18 @@ public class MessageTask implements com.riskwarning.common.reliability.DurableWo
     private com.riskwarning.common.reliability.DurableWorkStore store;
 
     public String kind() { return "REPORT_INBOX"; }
+    public int maxAttempts() { return 1; }
+
+    @Override
+    public void onExhausted(String payload, Throwable failure) {
+        AssessmentCompletedEventMessage message = com.alibaba.fastjson2.JSON.parseObject(payload, AssessmentCompletedEventMessage.class);
+        assessmentService.markAssessmentFailed(message.getUserId(), message.getProjectId(), message.getAssessmentId(),
+                message.getFailureStage() == null ? "REPORT_AGGREGATION" : message.getFailureStage(),
+                message.getFailureDetail() == null ? failure.toString() : message.getFailureDetail());
+    }
 
     @Autowired
     private AssessmentService assessmentService;
-
-    @Autowired
-    private KafkaUtils kafkaUtils;
 
     @KafkaListener(topics = "assessment_completed_events", groupId = "test-consumer", containerFactory="durableKafkaListenerContainerFactory")
     public void onMessage(AssessmentCompletedEventMessage message) {
@@ -35,6 +41,11 @@ public class MessageTask implements com.riskwarning.common.reliability.DurableWo
 
     public void execute(String payload) {
         AssessmentCompletedEventMessage message = com.alibaba.fastjson2.JSON.parseObject(payload, AssessmentCompletedEventMessage.class);
+        if (message.getFailureStage() != null) {
+            assessmentService.markAssessmentFailed(message.getUserId(), message.getProjectId(), message.getAssessmentId(),
+                    message.getFailureStage(), message.getFailureDetail());
+            return;
+        }
         log.info("接收评估结束任务，开始汇总信息");
         long started = System.nanoTime();
         log.info("[AssessmentFlow] stage=REPORT_AGGREGATE status=START projectId={} assessmentId={} messageId={} traceId={}",

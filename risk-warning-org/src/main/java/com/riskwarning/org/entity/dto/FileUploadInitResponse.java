@@ -7,4 +7,5 @@ import lombok.Data;
 @AllArgsConstructor
 public class FileUploadInitResponse {
     private String uploadId;
+    private Long assessmentId;
 }

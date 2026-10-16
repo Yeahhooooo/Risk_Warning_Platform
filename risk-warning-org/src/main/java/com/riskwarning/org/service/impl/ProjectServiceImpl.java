@@ -1,5 +1,9 @@
 package com.riskwarning.org.service.impl;
 import com.alibaba.fastjson2.JSON;
+import com.riskwarning.common.utils.KafkaUtils;
+import com.riskwarning.common.message.NotificationMessage;
+import com.riskwarning.common.message.AssessmentCompletedEventMessage;
+import com.riskwarning.org.entity.dto.UploadConfirmDto;
 import com.riskwarning.common.dto.project.ProjectUpdateRequest;
 import com.riskwarning.common.enums.*;
 import com.riskwarning.common.enums.project.*;
@@ -37,6 +41,12 @@ import java.util.stream.Collectors;
 public class ProjectServiceImpl implements ProjectService {
     @org.springframework.beans.factory.annotation.Autowired
     private DurableWorkStore work;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private KafkaUtils kafka;
+
+    @org.springframework.beans.factory.annotation.Value("${org.upload.assessment-timeout-seconds:1800}")
+    private long assessmentTimeoutSeconds = 1800;
 
 
     private final ProjectRepository projectRepository;
@@ -159,8 +169,9 @@ public class ProjectServiceImpl implements ProjectService {
     public Assessment getAssessmentByProjectId(Long projectId) {
         projectRepository.findById(projectId)
                 .orElseThrow(() -> new IllegalArgumentException("project not found: " + projectId));
-        return AssessmentDataGuard.requireReal(assessmentRepository.findFirstByProjectIdOrderByIdDesc(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("assessment not found for project: " + projectId)));
+        // First upload has no previous assessment; callers use null as the baseline ID of zero.
+        return assessmentRepository.findFirstByProjectIdOrderByIdDesc(projectId)
+                .map(AssessmentDataGuard::requireReal).orElse(null);
     }
 
     @Override
@@ -170,6 +181,122 @@ public class ProjectServiceImpl implements ProjectService {
         if (projectMember(id) == null && enterpriseMember(project.getEnterpriseId()) == null)
             throw new BusinessException("无权查看该项目");
         return project;
+    }
+
+    /** Commit before file merging, so upload rollback cannot erase its assessment. */
+    @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public Long prepareUploadAssessment(Long projectId, String taskId) {
+        if (taskId == null || taskId.trim().isEmpty()) throw new IllegalArgumentException("Upload requires taskId");
+        project(projectId, true);
+        List<Assessment> rows = em.createQuery("select a from Assessment a where a.uploadTaskId = :taskId", Assessment.class)
+                .setParameter("taskId", taskId).getResultList();
+        if (!rows.isEmpty()) {
+            if (!java.util.Objects.equals(projectId, rows.get(0).getProjectId()))
+                throw new IllegalArgumentException("Upload project mismatch");
+            return rows.get(0).getId();
+        }
+        Assessment assessment = Assessment.builder().projectId(projectId).uploadTaskId(taskId)
+                .status(AssessmentStatusEnum.TO_BE_ASSESSED).createdAt(LocalDateTime.now()).build();
+        assessmentRepository.saveAndFlush(assessment);
+        return assessment.getId();
+    }
+
+    /** A project lock makes concurrent file initializations join the same upload batch. */
+    @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public Assessment beginUploadAssessment(Long projectId) {
+        requireUploadAccess(project(projectId, true));
+        Assessment latest = assessmentRepository.findFirstByProjectIdOrderByIdDesc(projectId).orElse(null);
+        if (latest != null && latest.getStatus() == AssessmentStatusEnum.UPLOADING) return latest;
+        if (latest != null && (latest.getStatus() == AssessmentStatusEnum.TO_BE_ASSESSED
+                || latest.getStatus() == AssessmentStatusEnum.ASSESSING))
+            throw new BusinessException(409, "项目已有评估任务，请等待完成后再上传");
+        Assessment assessment = Assessment.builder().projectId(projectId)
+                .uploadTaskId(java.util.UUID.randomUUID().toString()).status(AssessmentStatusEnum.UPLOADING)
+                .createdAt(LocalDateTime.now()).build();
+        assessmentRepository.saveAndFlush(assessment);
+        UploadConfirmDto timeout = UploadConfirmDto.builder()
+                .projectId(projectId).assessmentId(assessment.getId()).taskId(assessment.getUploadTaskId())
+                .userId(userId()).build();
+        work.enqueueAt("ASSESSMENT_WATCHDOG", assessment.getUploadTaskId(), JSON.toJSONString(timeout),
+                java.time.Instant.now().plusSeconds(assessmentTimeoutSeconds));
+        return assessment;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Assessment requireUploadingAssessment(Long projectId) {
+        requireUploadAccess(project(projectId, false));
+        Assessment assessment = assessmentRepository.findFirstByProjectIdOrderByIdDesc(projectId)
+                .orElseThrow(() -> new BusinessException("上传评估不存在，请重新初始化上传"));
+        if (assessment.getStatus() != AssessmentStatusEnum.UPLOADING)
+            throw new BusinessException(409, "本次上传已结束，请查看评估状态或重新上传");
+        return assessment;
+    }
+
+    private void requireUploadAccess(Project project) {
+        if (projectMember(project.getId()) == null && enterpriseMember(project.getEnterpriseId()) == null)
+            throw new BusinessException(403, "无权上传该项目的文件");
+    }
+
+    /** Status transition and durable submission commit together; Redis handoff is legacy only. */
+    @Override
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void confirmUploadAssessment(UploadConfirmDto task) {
+        requireUploadAccess(project(task.getProjectId(), true));
+        Assessment assessment = em.find(Assessment.class, task.getAssessmentId(), LockModeType.PESSIMISTIC_WRITE);
+        if (assessment == null || !java.util.Objects.equals(task.getProjectId(), assessment.getProjectId())
+                || !java.util.Objects.equals(task.getTaskId(), assessment.getUploadTaskId()))
+            throw new BusinessException("上传任务与评估记录不匹配");
+        if (assessment.getStatus() == AssessmentStatusEnum.TO_BE_ASSESSED) return;
+        if (assessment.getStatus() != AssessmentStatusEnum.UPLOADING)
+            throw new BusinessException(409, "评估已结束，不能继续提交上传");
+        assessment.setStatus(AssessmentStatusEnum.TO_BE_ASSESSED);
+        work.enqueue("UPLOAD_INBOX", task.getTaskId(), JSON.toJSONString(task));
+    }
+
+    /** Synchronous Spring listener, independent of the failed upload transaction. */
+    @Override
+    @org.springframework.context.event.EventListener
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void onUploadFailure(AssessmentCompletedEventMessage event) {
+        if (event.getFailureStage() == null) return;
+        Assessment assessment = em.find(Assessment.class, event.getAssessmentId(), LockModeType.PESSIMISTIC_WRITE);
+        if (assessment == null || !java.util.Objects.equals(event.getProjectId(), assessment.getProjectId())) return;
+        if (assessment.getStatus() == AssessmentStatusEnum.ASSESSED || assessment.getStatus() == AssessmentStatusEnum.FAILED) return;
+        // A late chunk/confirm error cannot fail an already submitted batch.
+        if (event.getFailureStage().startsWith("UPLOAD_") && assessment.getStatus() != AssessmentStatusEnum.UPLOADING) return;
+        String reason;
+        switch (event.getFailureStage()) {
+            case "UPLOAD_INIT": reason = "文件上传初始化失败，请检查文件后重新上传"; break;
+            case "UPLOAD_CHUNK": reason = "文件分片上传失败，请重新上传"; break;
+            case "UPLOAD_CONFIRM": reason = "文件上传确认失败，请检查分片后重新上传"; break;
+            case "UPLOAD_CANCELLED": reason = "文件上传已取消，请重新上传后评估"; break;
+            case "FILE_MERGE": reason = "上传文件合并失败，请检查文件是否完整后重新上传"; break;
+            case "ASSESSMENT_TIMEOUT": reason = "上传或评估超时，请检查服务后重新评估"; break;
+            default: throw new IllegalArgumentException("Unknown upload failure stage: " + event.getFailureStage());
+        }
+        assessment.setStatus(AssessmentStatusEnum.FAILED);
+        assessment.setFailureCode(event.getFailureStage() + "_FAILED");
+        assessment.setFailureReason(reason);
+        assessment.setFailureStage(event.getFailureStage());
+        assessment.setFailedAt(LocalDateTime.now());
+        // Retain the complete exception in the durable outbox payload for tracing.
+        kafka.sendMessage(event);
+        NotificationMessage notification = new NotificationMessage(
+                "assessment-" + assessment.getId() + "-failed", assessment.getFailedAt().toString(),
+                assessment.getUploadTaskId(), event.getUserId(), assessment.getProjectId(), assessment.getId());
+        notification.setNotificationType(NotificationMessage.NotificationType.ASSESSMENT_FAILED);
+        notification.setTitle("评估失败通知"); notification.setContent(reason);
+        java.util.Map<String, Object> status = new java.util.LinkedHashMap<>();
+        status.put("assessmentId", assessment.getId()); status.put("projectId", assessment.getProjectId());
+        status.put("status", "FAILED"); status.put("failureCode", assessment.getFailureCode());
+        status.put("failureReason", reason); status.put("failureStage", assessment.getFailureStage());
+        status.put("failedAt", assessment.getFailedAt());
+        notification.setExtraData(JSON.toJSONString(status));
+        kafka.sendMessage(notification);
+        em.flush();
     }
 
     @Override
@@ -217,11 +344,11 @@ public class ProjectServiceImpl implements ProjectService {
 
     private void requireIdle(Long id) {
         Long active = em.createQuery("select count(a) from Assessment a where a.projectId = :id and a.status in :states", Long.class)
-                .setParameter("id", id).setParameter("states", Arrays.asList(AssessmentStatusEnum.TO_BE_ASSESSED, AssessmentStatusEnum.ASSESSING))
+                .setParameter("id", id).setParameter("states", Arrays.asList(AssessmentStatusEnum.UPLOADING, AssessmentStatusEnum.TO_BE_ASSESSED, AssessmentStatusEnum.ASSESSING))
                 .getSingleResult();
         if (active > 0) throw new BusinessException("项目正在评估，请等待完成后再修改或删除");
-        Number pending = (Number) em.createNativeQuery("select count(*) from assessment_work where state='READY' "
-                + "and kind <> 'PROJECT_RESOURCE_CLEANUP' and (cast(payload as jsonb)->>'projectId' = :id "
+        Number pending = (Number) em.createNativeQuery("select count(*) from assessment_work where state in ('READY','FAILURE_PENDING') "
+                + "and kind not in ('PROJECT_RESOURCE_CLEANUP','ASSESSMENT_WATCHDOG') and (cast(payload as jsonb)->>'projectId' = :id "
                 + "or cast(payload as jsonb)->'message'->>'projectId' = :id)")
                 .setParameter("id", id.toString()).getSingleResult();
         if (pending.longValue() > 0) throw new BusinessException("项目仍有待处理任务，请稍后再修改或删除");

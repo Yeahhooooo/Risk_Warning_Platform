@@ -52,11 +52,15 @@ public class MessageTask {
     @Bean public DurableWorkHandler behaviorInboxHandler() {
         return new DurableWorkHandler() {
             public String kind() { return "BEHAVIOR_INBOX"; }
-            public void onExhausted(String payload) {
-                behaviors.markAssessmentFailed(JSON.parseObject(payload, BehaviorProcessingTaskMessage.class).getAssessmentId());
+            public int maxAttempts() { return 1; }
+            public void onExhausted(String payload, Throwable failure) {
+                BehaviorProcessingTaskMessage message = JSON.parseObject(payload, BehaviorProcessingTaskMessage.class);
+                behaviors.reportAssessmentFailure(message.getUserId(), message.getProjectId(), message.getAssessmentId(),
+                        "BEHAVIOR_PROCESSING", failure);
             }
             public void execute(String payload) throws Exception {
                 BehaviorProcessingTaskMessage message = JSON.parseObject(payload, BehaviorProcessingTaskMessage.class);
+                if (!behaviors.startAssessment(message.getAssessmentId(), message.getProjectId())) return;
                 if(message.getType() != DataSourceTypeEnum.FILE_UPLOAD) throw new IllegalArgumentException("Unsupported task type: " + message.getType());
                 log.info("[AssessmentFlow] stage=DOCUMENT_EXTRACT status=START projectId={} assessmentId={}", message.getProjectId(), message.getAssessmentId());
                 List<String> inputs = documents.processDocument(message.getProjectId(), new ArrayList<>(), message.getFilePaths());
@@ -73,11 +77,15 @@ public class MessageTask {
     @Bean public DurableWorkHandler indicatorInboxHandler() {
         return new DurableWorkHandler() {
             public String kind() { return "INDICATOR_INBOX"; }
-            public void onExhausted(String payload) {
-                behaviors.markAssessmentFailed(JSON.parseObject(payload, IndicatorCalculationTaskMessage.class).getAssessmentId());
+            public int maxAttempts() { return 1; }
+            public void onExhausted(String payload, Throwable failure) {
+                IndicatorCalculationTaskMessage message = JSON.parseObject(payload, IndicatorCalculationTaskMessage.class);
+                behaviors.reportAssessmentFailure(message.getUserId(), message.getProjectId(), message.getAssessmentId(),
+                        "INDICATOR_CALCULATION", failure);
             }
             public void execute(String payload) {
                 IndicatorCalculationTaskMessage message = JSON.parseObject(payload, IndicatorCalculationTaskMessage.class);
+                if (!behaviors.startAssessment(message.getAssessmentId(), message.getProjectId())) return;
                 behaviors.processProjectBehaviors(message.getUserId(), message.getProjectId(), message.getAssessmentId());
                 log.info("[AssessmentFlow] stage=INDICATOR_CALCULATE status=DONE projectId={} assessmentId={}", message.getProjectId(), message.getAssessmentId());
             }

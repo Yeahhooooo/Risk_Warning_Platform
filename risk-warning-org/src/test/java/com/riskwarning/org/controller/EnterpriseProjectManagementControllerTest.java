@@ -18,6 +18,37 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class EnterpriseProjectManagementControllerTest {
+    @Test void projectWithNoAssessmentReturnsSuccessfulNullData() throws Exception {
+        when(projectService.getAssessmentByProjectId(358L)).thenReturn(null);
+        mvc.perform(get("/project/358/assessment"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.message").value("success"))
+                .andExpect(jsonPath("$.data").value(org.hamcrest.Matchers.nullValue()));
+    }
+    @Test void enterpriseLatestReportKeepsPublicRouteAndNestedFailureInformation() throws Exception {
+        java.util.Map<String, Object> overall = new java.util.LinkedHashMap<>();
+        overall.put("status", "FAILED");
+        overall.put("failureCode", "INDICATOR_CALCULATION_FAILED");
+        overall.put("failureReason", "指标计算失败，请稍后重新评估");
+        overall.put("failureStage", "INDICATOR_CALCULATION");
+        overall.put("failedAt", "2026-10-15T14:30:00");
+        java.util.Map<String, Object> report = new java.util.LinkedHashMap<>();
+        report.put("projectId", 20L);
+        report.put("assessmentId", 81L);
+        report.put("overallResult", overall);
+        when(enterpriseService.getLatestAssessmentReportByEnterpriseName("企业A")).thenReturn(report);
+        mvc.perform(get("/enterprise/{name}/assessment", "企业A").characterEncoding("UTF-8"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.assessmentId").value(81))
+                .andExpect(jsonPath("$.data.overallResult.status").value("FAILED"))
+                .andExpect(jsonPath("$.data.overallResult.failureReason").value("指标计算失败，请稍后重新评估"))
+                .andExpect(jsonPath("$.data.overallResult.failureStage").value("INDICATOR_CALCULATION"))
+                .andExpect(jsonPath("$.data.overallResult.failedAt").value("2026-10-15T14:30:00"))
+                .andExpect(jsonPath("$.data.details").doesNotExist())
+                .andExpect(jsonPath("$.data.data").doesNotExist());
+        verify(enterpriseService).getLatestAssessmentReportByEnterpriseName("企业A");
+    }
     private final EnterpriseService enterpriseService = mock(EnterpriseService.class);
     private final ProjectService projectService = mock(ProjectService.class);
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new EnterpriseController(enterpriseService),new ProjectController(projectService)).build();

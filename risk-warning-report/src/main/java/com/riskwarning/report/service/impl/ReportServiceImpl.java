@@ -161,13 +161,31 @@ public class ReportServiceImpl implements ReportService {
         return riskVOList;
     }
 
+    private OverallResult overallResult(Assessment assessment) {
+        return OverallResult.builder().status(assessment.getStatus())
+                .overallScore(assessment.getOverallScore()).overallRiskLevel(assessment.getOverallRiskLevel())
+                .failureCode(assessment.getFailureCode()).failureReason(assessment.getFailureReason())
+                .failureStage(assessment.getFailureStage()).failedAt(assessment.getFailedAt()).build();
+    }
+
     @Override
     public AssessmentDetailVO assembleGeneral(Assessment assessment) {
         AssessmentDataGuard.requireReal(assessment);
+        if (assessment.getStatus() == com.riskwarning.common.enums.AssessmentStatusEnum.FAILED
+                || assessment.getStatus() == com.riskwarning.common.enums.AssessmentStatusEnum.UPLOADING
+                || assessment.getStatus() == com.riskwarning.common.enums.AssessmentStatusEnum.TO_BE_ASSESSED
+                || assessment.getStatus() == com.riskwarning.common.enums.AssessmentStatusEnum.ASSESSING) {
+            AssessmentDetailVO failed = new AssessmentDetailVO();
+            failed.setAssessmentId(assessment.getId());
+            failed.setProjectId(assessment.getProjectId());
+            failed.setOverallResult(overallResult(assessment));
+            return failed;
+        }
         if (assessment.getDetails() != null && !assessment.getDetails().trim().isEmpty()) {
             try {
                 AssessmentGeneralDetails details = JSON.parseObject(assessment.getDetails(), AssessmentGeneralDetails.class);
                 AssessmentDetailVO general = details.getAssessmentDetailVO();
+                general.setOverallResult(overallResult(assessment));
                 general.getOverallResult().setOverallScore(AssessmentScores.percentage(indicatorResults(assessment)));
                 return general;
             } catch (RuntimeException e) {
@@ -193,12 +211,8 @@ public class ReportServiceImpl implements ReportService {
         assessmentDetailVO.setProjectId(assessment.getProjectId());
         assessmentDetailVO.setAssessmentId(assessment.getId());
         assessmentDetailVO.setAssessmentDate(assessment.getAssessmentDate());
-        assessmentDetailVO.setOverallResult(OverallResult.builder()
-                .overallScore(AssessmentScores.percentage(indicatorRows))
-                .overallRiskLevel(assessment.getOverallRiskLevel())
-                .status(assessment.getStatus())
-                .build()
-        );
+        assessmentDetailVO.setOverallResult(overallResult(assessment));
+        assessmentDetailVO.getOverallResult().setOverallScore(AssessmentScores.percentage(indicatorRows));
         assessmentDetailVO.setRiskSummary(new RiskSummary());
         assessmentDetailVO.setIndicatorOverview(new IndicatorOverview());
         // 同上：枚举键用 EnumMap 保证键序确定（按枚举声明顺序）

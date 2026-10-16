@@ -2,6 +2,7 @@ package com.riskwarning.common.enums;
 
 public enum AssessmentStatusEnum {
 
+    UPLOADING("UPLOADING", "上传中"),
     TO_BE_ASSESSED("TO_BE_ASSESSED", "待评估"),
     ASSESSING("ASSESSING", "评估中"),
     ASSESSED("ASSESSED", "已完成"),

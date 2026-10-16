@@ -26,16 +26,17 @@ public class FileUtils {
     public static void transferFile(MultipartFile multipartFile, String targetFilePath) {
         File targetFile = new File(targetFilePath);
         File parentDir = targetFile.getParentFile();
-        if(targetFile.exists()){
-            return;
-        }
-        if (!parentDir.exists()) {
-            parentDir.mkdirs();
-        }
+        java.nio.file.Path temporary = null;
         try {
-            multipartFile.transferTo(targetFile);
+            Files.createDirectories(parentDir.toPath());
+            temporary = Files.createTempFile(parentDir.toPath(), ".chunk-", ".tmp");
+            multipartFile.transferTo(temporary.toFile());
+            Files.move(temporary, targetFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         } catch (Exception e) {
             throw new RuntimeException("Failed to transfer file to " + targetFilePath, e);
+        } finally {
+            if (temporary != null) try { Files.deleteIfExists(temporary); }
+            catch (java.io.IOException cleanupFailure) { log.warn("Failed to clean temporary chunk {}", temporary, cleanupFailure); }
         }
     }
 
@@ -59,7 +60,7 @@ public class FileUtils {
     public static void union(String dirPath, String toFilePath, Boolean delSource){
         File dir = new File(dirPath);
         if(!dir.exists() || !dir.isDirectory()){
-            throw new BusinessException("目录不存在或不是一个目录");
+            throw new BusinessException("分片目录不存在或不是一个目录: " + dir.getAbsolutePath());
         }
         File[] fileList = dir.listFiles();
         if (fileList == null || fileList.length == 0) {

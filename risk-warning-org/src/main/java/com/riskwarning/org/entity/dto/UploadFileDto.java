@@ -22,6 +22,10 @@ public class UploadFileDto implements Serializable {
 
     private Long userId;
 
+    private Long assessmentId;
+
+    private String taskId;
+
     private String fileHash;
 
     // 总分片数

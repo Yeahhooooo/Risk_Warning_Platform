@@ -7,6 +7,8 @@ import com.riskwarning.common.dto.project.ProjectUpdateRequest;
 import com.riskwarning.common.po.report.Assessment;
 
 import java.util.List;
+import com.riskwarning.org.entity.dto.UploadConfirmDto;
+import com.riskwarning.common.message.AssessmentCompletedEventMessage;
 
 
 /**
@@ -53,9 +55,19 @@ public interface ProjectService {
      * 根据项目ID查询评估记录
      *
      * @param projectId 项目ID
-     * @return 评估记录
+     * @return 最新评估记录；项目存在但尚未评估时返回 null
      */
     Assessment getAssessmentByProjectId(Long projectId);
+
+    Long prepareUploadAssessment(Long projectId, String taskId);
+
+    Assessment beginUploadAssessment(Long projectId);
+
+    Assessment requireUploadingAssessment(Long projectId);
+
+    void confirmUploadAssessment(UploadConfirmDto task);
+
+    void onUploadFailure(AssessmentCompletedEventMessage event);
 
     Project getProject(Long id);
 

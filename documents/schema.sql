@@ -21,7 +21,7 @@ CREATE TYPE project_oriented_user_enum AS ENUM ('政府机构与官员', '国有
 -- 事件类型
 CREATE TYPE event_type_enum AS ENUM ('BEHAVIOR_INGESTION', 'INDICATOR_CALCULATION', 'RISK_TRIGGERED', 'ASSESSMENT_COMPLETED', 'SYSTEM_NOTIFICATION');
 -- 评估状态
-CREATE TYPE assessment_status_enum AS ENUM ('待评估', '评估中', '已完成', '评估失败');
+CREATE TYPE assessment_status_enum AS ENUM ('上传中', '待评估', '评估中', '已完成', '评估失败');
 -- 指标是否进行风险评估
 CREATE TYPE indicator_risk_status_enum AS ENUM ('未评估', '已评估');
 
@@ -134,6 +134,11 @@ CREATE TABLE IF NOT EXISTS public.t_assessment_result (
     details JSONB,
     recommendations TEXT,
     status assessment_status_enum,
+    failure_code VARCHAR(64),
+    failure_reason TEXT,
+    failure_stage VARCHAR(64),
+    failed_at TIMESTAMP,
+    upload_task_id VARCHAR(64) UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

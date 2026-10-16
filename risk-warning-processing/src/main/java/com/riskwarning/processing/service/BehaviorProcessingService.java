@@ -1,9 +1,20 @@
 package com.riskwarning.processing.service;
 
+import com.riskwarning.common.context.UserContext;
+import com.riskwarning.common.po.project.ProjectMemberId;
+import com.riskwarning.common.po.project.ProjectMember;
+import com.riskwarning.common.po.enterprise.EnterpriseUserId;
+import com.riskwarning.common.po.enterprise.EnterpriseUser;
+import javax.persistence.LockModeType;
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.core.NestedExceptionUtils;
+
 import com.riskwarning.common.config.ElasticSearchConfig;
 import com.riskwarning.common.enums.AssessmentStatusEnum;
 import com.riskwarning.common.enums.indicator.IndicatorRiskStatus;
-import com.riskwarning.common.enums.project.ProjectStatus;
 import com.riskwarning.common.exception.BusinessException;
 import com.riskwarning.common.message.AssessmentCompletedEventMessage;
 import com.riskwarning.common.po.behavior.Behavior;
@@ -21,7 +32,6 @@ import com.riskwarning.common.utils.StringUtils;
 import com.riskwarning.processing.entity.dto.DocumentProcessingResult;
 import com.riskwarning.processing.repository.AssessmentRepository;
 import com.riskwarning.processing.repository.IndicatorResultRepository;
-import com.riskwarning.processing.repository.ProjectRepository;
 import com.riskwarning.processing.util.behavior.FallbackCalculator;
 import com.riskwarning.processing.util.behavior.QualitativeCalculator;
 import com.riskwarning.processing.util.behavior.QuantitativeCalculator;
@@ -50,6 +60,49 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 public class BehaviorProcessingService {
 
+    @PersistenceContext
+    private EntityManager em;
+
+    /** Called through the service proxy before the long-running processing transaction. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean startAssessment(Long assessmentId, Long projectId) {
+        Assessment assessment = em.find(Assessment.class, assessmentId, LockModeType.PESSIMISTIC_WRITE);
+        if (assessment == null || !Objects.equals(projectId, assessment.getProjectId()))
+            throw new IllegalArgumentException("Assessment does not belong to project");
+        if (assessment.getStatus() == AssessmentStatusEnum.ASSESSED || assessment.getStatus() == AssessmentStatusEnum.FAILED) return false;
+        assessment.setStatus(AssessmentStatusEnum.ASSESSING);
+        return true;
+    }
+
+    @Transactional(readOnly = true)
+    public Assessment requireAssessmentAccess(Long assessmentId, Long projectId) {
+        if (UserContext.getUser() == null) throw new BusinessException(401, "请先登录");
+        Assessment assessment = em.find(Assessment.class, assessmentId);
+        if (assessment == null) throw new BusinessException(404, "评估记录不存在");
+        if (!Objects.equals(projectId, assessment.getProjectId())) throw new BusinessException(400, "评估记录与项目不匹配");
+        Project project = em.find(Project.class, projectId);
+        if (project == null) throw new BusinessException(404, "项目不存在");
+        Long userId = UserContext.getUser().getId();
+        Object member = em.find(ProjectMember.class,
+                new ProjectMemberId(projectId, userId));
+        Object enterpriseMember = em.find(EnterpriseUser.class,
+                new EnterpriseUserId(project.getEnterpriseId(), userId));
+        if (member == null && enterpriseMember == null) throw new BusinessException(403, "无权查看该项目的评估");
+        return assessment;
+    }
+
+    /** Publish through the existing outbox; report owns terminal status and frontend notification. */
+    @Transactional
+    public void reportAssessmentFailure(Long userId, Long projectId, Long assessmentId, String stage, Throwable failure) {
+        AssessmentCompletedEventMessage event = new AssessmentCompletedEventMessage("assessment-" + assessmentId + "-" + stage + "-failed",
+                String.valueOf(System.currentTimeMillis()), "assessment-" + assessmentId, userId, projectId, assessmentId);
+        event.setFailureStage(stage);
+        java.io.StringWriter trace = new java.io.StringWriter();
+        failure.printStackTrace(new java.io.PrintWriter(trace));
+        event.setFailureDetail(trace.toString());
+        kafkaUtils.sendMessage(event);
+    }
+
     private static final double REG_APPLICABILITY_THRESHOLD = 0.15;
 
     private static final double REG_TO_INDICATOR_THRESHOLD = 0.2;
@@ -73,9 +126,6 @@ public class BehaviorProcessingService {
 
     @Autowired
     private AssessmentRepository assessmentRepository;
-
-    @Autowired
-    private ProjectRepository projectRepository;
 
     @Autowired
     @Qualifier(value = "BehaviorProcessTaskThreadPool")
@@ -145,12 +195,15 @@ public class BehaviorProcessingService {
      * @param projectId 项目ID
      * @param assessmentId 评估ID（由调用方创建并传入）
      */
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public void processProjectBehaviors(Long userId, Long projectId, Long assessmentId) {
         if (userId == null || projectId == null || assessmentId == null) {
             throw new BusinessException("User ID, Project ID, and Assessment ID must be provided for behavior processing.");
         }
-        updateAssessmentStatus(assessmentId, AssessmentStatusEnum.ASSESSING);
+        Assessment assessment = assessmentRepository.findById(assessmentId)
+                .orElseThrow(() -> new IllegalArgumentException("Assessment not found"));
+        if (!Objects.equals(projectId, assessment.getProjectId())) throw new IllegalArgumentException("Assessment project mismatch");
+        if (assessment.getStatus() == AssessmentStatusEnum.FAILED || assessment.getStatus() == AssessmentStatusEnum.ASSESSED) return;
         log.info("[Process Project START] projectId={}, assessmentId={} (传入)", projectId, assessmentId);
 
         // 1. 从 ES 获取该项目的所有 behaviors
@@ -382,69 +435,12 @@ public class BehaviorProcessingService {
         return ids.toArray(new String[0]);
     }
 
-    private void updateAssessmentStatus(Long assessmentId, AssessmentStatusEnum assessmentStatus) {
-        Optional<Assessment> opt = assessmentRepository.findById(assessmentId);
-        if (opt.isPresent()) {
-            Assessment ar = opt.get();
-            ar.setStatus(assessmentStatus);
-            assessmentRepository.saveAndFlush(ar);
-
-            AssessmentStatusEnum persistedStatus = assessmentRepository.findById(assessmentId)
-                    .map(Assessment::getStatus)
-                    .orElse(null);
-            if (persistedStatus != assessmentStatus) {
-                throw new IllegalStateException("Assessment status was not persisted: assessmentId="
-                        + assessmentId + ", expected=" + assessmentStatus + ", actual=" + persistedStatus);
-            }
-            log.info("[Assessment Status Persisted] assessmentId={}, status={}", assessmentId, persistedStatus);
-        } else {
-            log.warn("[Assessment Not Found] assessmentId={}", assessmentId);
-            throw new RuntimeException("[Assessment Not Found] assessmentId=" + assessmentId);
-        }
-    }
-
-    /**
-     * 幂等地将评估标记为已完成，供计算流程和消息任务在不同边界重复确认。
-     */
-    public void markAssessmentCompleted(Long assessmentId) {
-        updateAssessmentStatus(assessmentId, AssessmentStatusEnum.ASSESSED);
-    }
-
-    /** 在所有重试均失败后记录终态，避免评估永久停留在“评估中”。 */
-    public void markAssessmentFailed(Long assessmentId) {
-        updateAssessmentStatus(assessmentId, AssessmentStatusEnum.FAILED);
-    }
-
-    /** 幂等地将项目标记为已完成，并立即刷新、回查数据库。 */
-    public void markProjectCompleted(Long projectId) {
-        Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new RuntimeException("[Project Not Found] projectId=" + projectId));
-        project.setStatus(ProjectStatus.COMPLETED);
-        project.setActualCompletionDate(java.time.LocalDate.now());
-        project.setUpdatedAt(LocalDateTime.now());
-        projectRepository.saveAndFlush(project);
-
-        ProjectStatus persistedStatus = projectRepository.findById(projectId)
-                .map(Project::getStatus)
-                .orElse(null);
-        if (persistedStatus != ProjectStatus.COMPLETED) {
-            throw new IllegalStateException("Project status was not persisted: projectId="
-                    + projectId + ", expected=COMPLETED, actual=" + persistedStatus);
-        }
-        log.info("[Project Status Persisted] projectId={}, status={}", projectId, persistedStatus);
-    }
-
-
     private void completeAssessmentIfNeeded(Long userId, Long projectId, Long assessmentId) {
         long resultCount = indicatorResultRepository.countByAssessmentId(assessmentId);
         if (resultCount == 0) {
             throw new IllegalStateException("Cannot complete assessment without persisted indicator results: assessmentId=" + assessmentId);
         }
-        // 行为评估计算已经完成，先在当前服务中持久化最终状态。
-        // 报告服务仍会消费下面的完成事件来汇总报告，但评估状态不再依赖
-        // report 服务是否在线或 Kafka 消息是否被及时消费。
-        markAssessmentCompleted(assessmentId);
-        markProjectCompleted(projectId);
+        // Keep ASSESSING until report aggregation and its notification outbox commit.
 
         AssessmentCompletedEventMessage assessmentCompletedEventMessage = new AssessmentCompletedEventMessage(
                 StringUtils.generateMessageId(),
@@ -454,14 +450,8 @@ public class BehaviorProcessingService {
                 projectId,
                 assessmentId
         );
-        try {
-            kafkaUtils.sendMessage(assessmentCompletedEventMessage);
-        } finally {
-            // 即使 Kafka 发送失败，也再次确认数据库中的最终状态。
-            markAssessmentCompleted(assessmentId);
-            markProjectCompleted(projectId);
-        }
-        log.info("[Assessment Completed] projectId={}, assessmentId={}", projectId, assessmentId);
+        kafkaUtils.sendMessage(assessmentCompletedEventMessage);
+        log.info("[Assessment Awaiting Report] projectId={}, assessmentId={}", projectId, assessmentId);
     }
 
     // 改名：保留原 compute-only 方法（不入库），接收带分数的候选列表

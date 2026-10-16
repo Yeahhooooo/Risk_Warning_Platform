@@ -10,6 +10,14 @@ import java.util.concurrent.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class DurableWorkStoreTest {
+    @Test void delayedWatchdogSurvivesRestartAndDoesNotRunBeforeDeadline() {
+        store.enqueueAt("WATCHDOG", "assessment-1", "input", java.time.Instant.now().plusSeconds(600));
+        DurableWorkStore restarted = new DurableWorkStore(jdbc, tx, "test");
+        assertFalse(restarted.runOne("WATCHDOG", payload -> fail("watchdog ran too early"), 0));
+        jdbc.update("update assessment_work set available_at=CURRENT_TIMESTAMP");
+        assertTrue(restarted.runOne("WATCHDOG", payload -> assertEquals("input", payload), 0));
+        assertEquals("DONE", jdbc.queryForObject("select state from assessment_work", String.class));
+    }
     JdbcTemplate jdbc;
     TransactionTemplate tx;
     DurableWorkStore store;
@@ -75,11 +83,49 @@ class DurableWorkStoreTest {
         store.runOne("INBOX", p -> {
             jdbc.update("insert into business_result values (1)");
             throw new IllegalStateException("failure");
-        }, 1, p -> {
+        }, 1, (p, failure) -> {
             assertEquals(0, jdbc.queryForObject("select count(*) from business_result", Integer.class));
             jdbc.update("insert into business_result values (2)");
         });
         assertEquals(2, jdbc.queryForObject("select id from business_result", Integer.class));
         assertEquals("FAILED", jdbc.queryForObject("select state from assessment_work", String.class));
+    }
+
+    @Test void transientFailureDoesNotFinalizeAndCanSucceedOnRetry() {
+        store.enqueue("INBOX", "retry", "payload");
+        store.runOne("INBOX", p -> { throw new IllegalStateException("temporary failure"); }, 3,
+                (p, failure) -> fail("must not finalize while retries remain"));
+        assertEquals("READY", jdbc.queryForObject("select state from assessment_work", String.class));
+        jdbc.update("update assessment_work set available_at=CURRENT_TIMESTAMP");
+        store.runOne("INBOX", p -> jdbc.update("insert into business_result values (1)"), 3);
+        assertEquals("DONE", jdbc.queryForObject("select state from assessment_work", String.class));
+        assertNull(jdbc.queryForObject("select last_error from assessment_work", String.class));
+    }
+
+    @Test void failedFinalizationRollsBackAndResumesAfterRestartWithoutRerunningBusiness() {
+        store.enqueue("INBOX", "event", "payload");
+        store.runOne("INBOX", p -> { throw new IllegalStateException("root cause", new RuntimeException("deep cause")); }, 1,
+                (p, failure) -> {
+                    assertEquals("root cause", failure.getCause().getMessage());
+                    jdbc.update("insert into business_result values (2)");
+                    store.enqueue("OUTBOX", "failure-notification", "failure");
+                    throw new IllegalStateException("failure update unavailable");
+                });
+        assertEquals("FAILURE_PENDING", jdbc.queryForObject("select state from assessment_work", String.class));
+        assertEquals(0, jdbc.queryForObject("select count(*) from business_result", Integer.class));
+        assertEquals(0, jdbc.queryForObject("select count(*) from assessment_work where kind='OUTBOX'", Integer.class));
+        String error = jdbc.queryForObject("select last_error from assessment_work", String.class);
+        assertTrue(error.contains("deep cause"));
+        assertTrue(error.contains("DurableWorkStoreTest.java"));
+        jdbc.update("update assessment_work set available_at=CURRENT_TIMESTAMP");
+        DurableWorkStore restarted = new DurableWorkStore(jdbc, tx, "test");
+        restarted.runOne("INBOX", p -> fail("must not repeat failed business work"), 1, (p, failure) -> {
+            assertTrue(failure.getMessage().contains("deep cause"));
+            jdbc.update("insert into business_result values (2)");
+            restarted.enqueue("OUTBOX", "failure-notification", "failure");
+        });
+        assertEquals("FAILED", jdbc.queryForObject("select state from assessment_work where kind='INBOX'", String.class));
+        assertEquals(1, jdbc.queryForObject("select count(*) from assessment_work where kind='OUTBOX'", Integer.class));
+        assertEquals(2, jdbc.queryForObject("select id from business_result", Integer.class));
     }
 }
